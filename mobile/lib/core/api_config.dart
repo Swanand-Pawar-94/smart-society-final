@@ -213,6 +213,17 @@ class ApiConfig {
 
   /// Logs startup diagnostics to the console (debug builds only)
   static void printStartupDiagnostics() {
+    final envLabel = switch (environment) {
+      ApiEnvironment.lan => 'local',
+      ApiEnvironment.usb => 'usb',
+      ApiEnvironment.emulator => 'emulator',
+      ApiEnvironment.production => 'production',
+      ApiEnvironment.test => 'test',
+      _ => 'local',
+    };
+    debugPrint('API Environment: $envLabel');
+    debugPrint('API Base URL: ${baseUrl.isEmpty ? "[NOT CONFIGURED]" : baseUrl}');
+
     debugPrint('╔════════════════════════════════════════════════════════════════╗');
     debugPrint('║                SMART SOCIETY — API DIAGNOSTICS                 ║');
     debugPrint('╠════════════════════════════════════════════════════════════════╣');

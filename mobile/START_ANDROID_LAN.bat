@@ -4,61 +4,60 @@ setlocal enabledelayedexpansion
 :: ============================================================
 :: Smart Society - Physical Android Device via Wi-Fi (LAN Mode)
 :: ============================================================
-:: Connects physical phone to PC over local Wi-Fi network.
-:: Dynamically detects PC's active LAN IPv4 address.
-:: Launches Flutter with: --dart-define=API_BASE_URL=http://<PC_IP>:8000/api
+:: Automatically detects PC's active Wi-Fi/Ethernet IPv4 address
+:: and launches Flutter with the exact dynamic API_BASE_URL.
 :: ============================================================
 
-:: Optional manual override: set MANUAL_IP=192.168.1.9 to force a specific IP
-set MANUAL_IP=
+set SCRIPT_DIR=%~dp0
+set TEMP_IP_FILE=%TEMP%\smartsociety_lan_ip_%RANDOM%.txt
 
-echo ============================================================
-echo   Smart Society - Mobile Launcher [LAN / Wi-Fi Mode]
-echo ============================================================
-echo.
+if exist "%TEMP_IP_FILE%" del /f /q "%TEMP_IP_FILE%" >nul 2>&1
 
 :: -- STEP 1: Detect Active PC LAN IPv4 Address ----------------
-if defined MANUAL_IP (
-    set PC_IP=%MANUAL_IP%
-    echo [INFO] Using manually configured IP: %PC_IP%
-) else (
-    echo [STEP 1] Detecting active PC LAN IPv4 address...
-    for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Wi-Fi*','Ethernet*' -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '169.254*' -and $_.IPAddress -notlike '127.*' } | Select-Object -ExpandProperty IPAddress -First 1)"`) do set PC_IP=%%i
+echo [STEP 1] Detecting active PC LAN IPv4 address...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%detect_lan_ip.ps1" -OutputFile "%TEMP_IP_FILE%"
+
+if exist "%TEMP_IP_FILE%" (
+    set /p PC_IP=<"%TEMP_IP_FILE%"
+    del /f /q "%TEMP_IP_FILE%" >nul 2>&1
 )
 
 if not defined PC_IP (
-    echo [ERROR] Could not automatically detect active LAN IPv4 address!
     echo.
-    echo Please make sure your PC is connected to Wi-Fi or Ethernet.
-    echo Alternatively, open this file and set MANUAL_IP at the top.
+    echo [ERROR] Could not automatically detect active LAN IPv4 address!
+    echo Please make sure your PC is connected to Wi-Fi or local network.
     echo.
     pause
     exit /b 1
 )
 
-echo [OK] Active PC LAN IP: %PC_IP%
 set API_URL=http://%PC_IP%:8000/api
-echo      API Base URL    : %API_URL%
-echo.
 
 :: -- STEP 2: Verify Laravel Backend on Port 8000 --------------
-echo [STEP 2] Verifying Laravel API reachable at %API_URL%/health...
-powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri '%API_URL%/health' -UseBasicParsing -TimeoutSec 3; Write-Host '[OK] Laravel responded: HTTP' $r.StatusCode } catch { Write-Host '[WARNING] Laravel is not responding on %PC_IP%:8000'; Write-Host '         Starting Laravel server on 0.0.0.0:8000...'; Start-Process cmd -ArgumentList '/c cd /d D:\SmartSociety\backend && php artisan serve --host=0.0.0.0 --port=8000' -WindowStyle Minimized; Start-Sleep -Seconds 3 }"
+echo [STEP 2] Verifying Laravel API on port 8000...
+powershell.exe -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/api/health' -UseBasicParsing -TimeoutSec 2; exit 0 } catch { exit 1 }"
+if %errorlevel% neq 0 (
+    echo [INFO] Laravel is not responding on port 8000.
+    echo        Starting Laravel server on 0.0.0.0:8000...
+    start "Laravel API Server" /min cmd /c "cd /d D:\SmartSociety\backend && php artisan serve --host=0.0.0.0 --port=8000"
+    timeout /t 3 /nobreak >nul
+) else (
+    echo [OK] Laravel backend is running.
+)
+
+:: -- STEP 3: Print Banner (Exact Required Format) -------------
+echo.
+echo ========================================
+echo Smart Society - Android LAN Mode
+echo ========================================
+echo PC IP: %PC_IP%
+echo API URL: %API_URL%
+echo Starting Flutter...
+echo ========================================
 echo.
 
-:: -- STEP 3: Check Connected Android Device -------------------
-echo [STEP 3] Checking for connected devices...
-flutter devices
-echo.
-
-:: -- STEP 4: Launch Flutter App in LAN Mode -------------------
-echo ============================================================
-echo  Starting Flutter in LAN Mode
-echo  Target URL: %API_URL%
-echo  Ensure phone is connected to the SAME Wi-Fi network!
-echo ============================================================
-echo.
-
-flutter run --dart-define=API_BASE_URL=%API_URL% --dart-define=API_ENV=lan
+:: -- STEP 4: Launch Flutter -----------------------------------
+cd /d "%SCRIPT_DIR%"
+flutter run --dart-define=API_BASE_URL=%API_URL% --dart-define=API_ENV=lan %*
 
 endlocal

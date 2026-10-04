@@ -4,33 +4,33 @@ setlocal enabledelayedexpansion
 :: ============================================================
 :: Smart Society - Android Emulator Launcher
 :: ============================================================
-:: The standard Android emulator uses 10.0.2.2 to access the
-:: development host machine's loopback (127.0.0.1).
-:: Launches Flutter with: --dart-define=API_BASE_URL=http://10.0.2.2:8000/api
+:: Maps Android Emulator 10.0.2.2 loopback to host PC port 8000.
 :: ============================================================
 
-echo ============================================================
-echo   Smart Society - Mobile Launcher [Android Emulator Mode]
-echo ============================================================
+set SCRIPT_DIR=%~dp0
+
+:: -- STEP 1: Verify Laravel Backend on Port 8000 --------------
+echo [STEP 1] Checking Laravel backend on port 8000...
+powershell.exe -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/api/health' -UseBasicParsing -TimeoutSec 2; exit 0 } catch { exit 1 }"
+if %errorlevel% neq 0 (
+    echo [INFO] Starting Laravel API server on 0.0.0.0:8000...
+    start "Laravel API Server" /min cmd /c "cd /d D:\SmartSociety\backend && php artisan serve --host=0.0.0.0 --port=8000"
+    timeout /t 3 /nobreak >nul
+) else (
+    echo [OK] Laravel backend is running.
+)
+
+:: -- STEP 2: Launch Flutter in Emulator Mode ------------------
+echo.
+echo ========================================
+echo Smart Society - Android Emulator Mode
+echo ========================================
+echo API URL: http://10.0.2.2:8000/api
+echo Starting Flutter...
+echo ========================================
 echo.
 
-:: -- STEP 1: Verify Laravel on Localhost:8000 -----------------
-echo [STEP 1] Checking Laravel API on localhost:8000...
-powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/api/health' -UseBasicParsing -TimeoutSec 3; Write-Host '[OK] Laravel responded: HTTP' $r.StatusCode } catch { Write-Host '[WARNING] Laravel is not responding on localhost:8000'; Write-Host '         Starting Laravel on 0.0.0.0:8000...'; Start-Process cmd -ArgumentList '/c cd /d D:\SmartSociety\backend && php artisan serve --host=0.0.0.0 --port=8000' -WindowStyle Minimized; Start-Sleep -Seconds 3 }"
-echo.
-
-:: -- STEP 2: List Connected Devices ---------------------------
-echo [STEP 2] Checking for running emulator...
-flutter devices
-echo.
-
-:: -- STEP 3: Launch Flutter in Emulator Mode ------------------
-echo ============================================================
-echo  Starting Flutter in Emulator Mode
-echo  API Base URL: http://10.0.2.2:8000/api
-echo ============================================================
-echo.
-
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api --dart-define=API_ENV=emulator
+cd /d "%SCRIPT_DIR%"
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api --dart-define=API_ENV=emulator %*
 
 endlocal
