@@ -211,6 +211,12 @@ class ApiConfig {
         'Or pass: --dart-define=API_BASE_URL=http://<YOUR_PC_IP>:8000/api';
   }
 
+  /// Compact single-line error message for UI banners
+  static String get shortConfigurationError {
+    if (isValid) return '';
+    return 'Backend API URL is not configured. Please launch via START_ANDROID_LAN.bat or pass --dart-define=API_BASE_URL=...';
+  }
+
   /// Logs startup diagnostics to the console (debug builds only)
   static void printStartupDiagnostics() {
     final envLabel = switch (environment) {

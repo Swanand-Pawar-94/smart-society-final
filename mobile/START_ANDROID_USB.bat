@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 :: ============================================================
-:: Smart Society - Physical Android Device via USB (ADB Reverse)
+:: Nivora - Physical Android Device via USB (ADB Reverse)
 :: ============================================================
 :: Connects physical phone to PC via USB cable.
 :: Uses ADB reverse to map phone port 8000 -> PC port 8000.
@@ -32,7 +32,7 @@ echo [OK] ADB found: "%ADB%"
 echo.
 echo [STEP 2] Detecting connected Android device...
 set DEVICE_ID=
-for /f "skip=1 tokens=1,2" %%a in ('"%ADB%" devices') do (
+for /f "skip=1 tokens=1,2" %%a in ('"%ADB%" devices 2^>nul') do (
     if "%%b"=="device" (
         set DEVICE_ID=%%a
     )
@@ -64,10 +64,10 @@ if %errorlevel% neq 0 (
 :: -- STEP 4: Verify the Reverse Mapping -----------------------
 echo.
 echo [STEP 4] Verifying ADB reverse mapping...
-"%ADB%" reverse --list
+"%ADB%" -s %DEVICE_ID% reverse --list
 echo [OK] Reverse mapping confirmed.
 
-:: -- STEP 5: Start Laravel on 0.0.0.0:8000 -------------------
+:: -- STEP 5: Start Laravel on Port 8000 -----------------------
 echo.
 echo [STEP 5] Checking Laravel backend on port 8000...
 powershell.exe -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/api/health' -UseBasicParsing -TimeoutSec 2; exit 0 } catch { exit 1 }"
@@ -82,11 +82,11 @@ if %errorlevel% neq 0 (
 :: -- STEP 6: Launch Flutter with USB Dart Defines -------------
 echo.
 echo ========================================
-echo Smart Society - Android USB Mode
-========================================
-echo Device: %DEVICE_ID%
-echo API URL: http://127.0.0.1:8000/api
-echo Reverse Tunnel: Active (tcp:8000)
+echo Nivora - Android USB Mode
+echo ========================================
+echo Device         : %DEVICE_ID%
+echo API URL        : http://127.0.0.1:8000/api
+echo Reverse Tunnel : Active (tcp:8000)
 echo Starting Flutter...
 echo ========================================
 echo.

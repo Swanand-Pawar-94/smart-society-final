@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
 
     <application
-        android:label="smart_society_app"
+        android:label="Nivora"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
@@ -16,6 +16,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:label="Nivora"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""

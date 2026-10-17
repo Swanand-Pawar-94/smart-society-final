@@ -53,6 +53,13 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearError() {
+    if (error != null) {
+      error = null;
+      notifyListeners();
+    }
+  }
+
   Future<bool> login(
     String login,
     String password, {

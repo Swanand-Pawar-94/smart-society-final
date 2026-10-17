@@ -205,7 +205,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
       final dateFormat = DateFormat('yyyyMMdd');
       final dateStr = dateFormat.format(DateTime.now());
       final sanitizedName = residentName.replaceAll(RegExp(r'[^\w\s]'), '').replaceAll(' ', '_');
-      final filename = 'Smart_Society_Ledger_${sanitizedName}_$dateStr.pdf';
+      final filename = 'Nivora_Ledger_${sanitizedName}_$dateStr.pdf';
 
       // Share PDF
       if (mounted) {

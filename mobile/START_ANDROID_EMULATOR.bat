@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 :: ============================================================
-:: Smart Society - Android Emulator Launcher
+:: Nivora - Android Emulator Launcher
 :: ============================================================
 :: Maps Android Emulator 10.0.2.2 loopback to host PC port 8000.
 :: ============================================================
@@ -23,7 +23,7 @@ if %errorlevel% neq 0 (
 :: -- STEP 2: Launch Flutter in Emulator Mode ------------------
 echo.
 echo ========================================
-echo Smart Society - Android Emulator Mode
+echo Nivora - Android Emulator Mode
 echo ========================================
 echo API URL: http://10.0.2.2:8000/api
 echo Starting Flutter...

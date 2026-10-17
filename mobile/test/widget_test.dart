@@ -15,7 +15,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Smart Society'), findsOneWidget);
+    expect(find.text('Nivora'), findsOneWidget);
     expect(find.text('Sign in'), findsOneWidget);
     expect(find.byType(TextFormField), findsNWidgets(2));
   });

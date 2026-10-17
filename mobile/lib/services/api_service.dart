@@ -70,7 +70,7 @@ class ApiService {
     if (!ApiConfig.isValid) {
       debugPrint('🚨 [API CONFIG ERROR] Request attempted with invalid or missing API URL.');
       debugPrint('👉 ${ApiConfig.configurationError}');
-      throw ApiException(ApiConfig.configurationError);
+      throw ApiException(ApiConfig.shortConfigurationError);
     }
 
     final normalizedBase = ApiConfig.baseUrl.endsWith('/')
@@ -164,7 +164,7 @@ class ApiService {
       debugPrint('   Target Device  : ${ApiConfig.devicePlatform}');
       debugPrint('   Stack trace    : $stack');
       throw ApiException(
-        'Unable to connect to Smart Society server (${uri.host}).\n'
+        'Unable to connect to Nivora server (${uri.host}).\n'
         'Connection timed out. Please verify that the server is running and your phone and PC are on the same network.',
       );
     } on SocketException catch (e, stack) {
@@ -178,7 +178,7 @@ class ApiService {
         debugPrint('👉 If using USB cable: ensure "adb reverse tcp:8000 tcp:8000" was run.');
         debugPrint('👉 If using Wi-Fi: launch the app using START_ANDROID_LAN.bat.');
         throw const ApiException(
-          'Cannot connect to Smart Society server at 127.0.0.1.\n\n'
+          'Cannot connect to Nivora server at 127.0.0.1.\n\n'
           '• If using a USB cable: verify "adb reverse tcp:8000 tcp:8000" is active.\n'
           '• If using Wi-Fi: launch the app using START_ANDROID_LAN.bat.',
         );
@@ -190,14 +190,14 @@ class ApiService {
         );
       }
       throw ApiException(
-        'Cannot connect to Smart Society server ($host:${uri.port}).\n'
+        'Cannot connect to Nivora server ($host:${uri.port}).\n'
         'Please check that Laravel is running on port ${uri.port} and your phone and PC are on the same Wi-Fi network.',
       );
     } on http.ClientException catch (e, stack) {
       debugPrint('🚨 [API CLIENT ERROR] ClientException ($e, URI: $uri)');
       debugPrint('   Stack trace: $stack');
       throw const ApiException(
-        'Cannot connect to Smart Society server. Please check that the server is running and verify your network connection.',
+        'Cannot connect to Nivora server. Please check that the server is running and verify your network connection.',
       );
     } on IOException catch (e, stack) {
       debugPrint('🚨 [API I/O ERROR] IOException ($e, URI: $uri)');
