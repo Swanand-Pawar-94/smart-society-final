@@ -7,6 +7,7 @@ use App\Models\UserDeviceToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 
 class DeviceTokenController extends Controller
 {
@@ -24,18 +25,24 @@ class DeviceTokenController extends Controller
         $deviceId = $request->input('device_id');
         $user = $request->user();
 
-        $token = UserDeviceToken::updateOrCreate(
-            [
-                'user_id' => $user->id,
-                'fcm_token' => $fcmToken,
-            ],
-            [
-                'platform' => in_array($platform, ['android', 'ios', 'web'], true) ? $platform : 'android',
-                'device_id' => $deviceId,
-                'is_active' => true,
-                'last_used_at' => now(),
-            ]
-        );
+        $token = DB::transaction(function () use ($fcmToken, $platform, $deviceId, $user): UserDeviceToken {
+            // FCM tokens identify an app installation, not a user. On account
+            // switching, retire any previous owner's association first.
+            UserDeviceToken::where('fcm_token', $fcmToken)
+                ->where('user_id', '!=', $user->id)
+                ->where('is_active', true)
+                ->update(['is_active' => false]);
+
+            return UserDeviceToken::updateOrCreate(
+                ['user_id' => $user->id, 'fcm_token' => $fcmToken],
+                [
+                    'platform' => in_array($platform, ['android', 'ios', 'web'], true) ? $platform : 'android',
+                    'device_id' => $deviceId,
+                    'is_active' => true,
+                    'last_used_at' => now(),
+                ]
+            );
+        });
 
         return response()->json([
             'message' => 'Device token registered successfully.',

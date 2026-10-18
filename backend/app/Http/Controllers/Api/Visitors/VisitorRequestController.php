@@ -5,28 +5,16 @@ namespace App\Http\Controllers\Api\Visitors;
 use App\Http\Controllers\Controller;
 use App\Models\Resident;
 use App\Models\Visitor;
-use App\Services\Notifications\FirebaseCloudMessagingService;
+use App\Notifications\VisitorAwaitingApproval;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Log;
 
 /**
- * Simple visitor request endpoint for testing the FCM notification flow.
- *
- * Any authenticated user can POST here. If the user is a RESIDENT, the
- * visitor is linked to their own flat automatically. This makes it possible
- * to test the full notification loop on a single device:
- *   1. Login as resident -> FCM token registered.
- *   2. POST /api/visitor-requests -> visitor created -> FCM sent to same device.
- *   3. Device receives notification.
+ * Compatibility endpoint for security staff creating visitor requests.
  */
 class VisitorRequestController extends Controller
 {
-    public function __construct(
-        private readonly FirebaseCloudMessagingService $fcm
-    ) {}
-
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -43,7 +31,10 @@ class VisitorRequestController extends Controller
 
         // Resolve resident & flat ─────────────────────────────────────────────
         if (! empty($validated['resident_id'])) {
-            $resident = Resident::with('flat', 'user')->find($validated['resident_id']);
+            $resident = Resident::with('flat', 'user')
+                ->whereKey($validated['resident_id'])
+                ->when(! empty($validated['flat_id']), fn ($query) => $query->where('flat_id', $validated['flat_id']))
+                ->first();
         } elseif (! empty($validated['flat_id'])) {
             $resident = Resident::with('flat', 'user')
                 ->where('flat_id', $validated['flat_id'])
@@ -75,37 +66,13 @@ class VisitorRequestController extends Controller
             'resident_id'           => $resident->id,
             'entry_status'          => Visitor::ENTRY_WAITING,
             'approval_status'       => Visitor::APPROVAL_PENDING,
-            'created_by_security_id' => null,
+            'created_by_security_id' => $user->id,
         ]);
 
         $visitor->setRelation('flat', $resident->flat);
-
-        Log::info('[VisitorRequest] Visitor created', [
-            'visitor_id'  => $visitor->id,
-            'visitor_name' => $visitor->visitor_name,
-            'flat_id'     => $visitor->flat_id,
-            'resident_id' => $visitor->resident_id,
-            'user_id'     => $user->id,
-        ]);
-
-        // Fire FCM push notification ──────────────────────────────────────────
         $residentUser = $resident->user;
-        $fcmResult    = ['status' => 'SKIPPED', 'reason' => 'Resident has no linked user'];
-
         if ($residentUser) {
-            try {
-                $fcmResult = $this->fcm->sendVisitorApprovalNotification($residentUser, $visitor);
-                Log::info('[VisitorRequest] FCM dispatch result', [
-                    'visitor_id' => $visitor->id,
-                    'fcm_status' => $fcmResult['status'] ?? 'UNKNOWN',
-                ]);
-            } catch (\Throwable $e) {
-                Log::error('[VisitorRequest] FCM dispatch threw an exception', [
-                    'visitor_id' => $visitor->id,
-                    'error'      => $e->getMessage(),
-                ]);
-                $fcmResult = ['status' => 'EXCEPTION', 'error' => $e->getMessage()];
-            }
+            $residentUser->notify(new VisitorAwaitingApproval($visitor));
         }
 
         return response()->json([
@@ -125,7 +92,7 @@ class VisitorRequestController extends Controller
                     'resident_id'     => $visitor->resident_id,
                     'created_at'      => $visitor->created_at,
                 ],
-                'fcm_notification' => $fcmResult,
+                'notification' => $residentUser ? 'persisted' : 'skipped_no_resident_user',
             ],
         ], Response::HTTP_CREATED);
     }

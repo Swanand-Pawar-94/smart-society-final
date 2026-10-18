@@ -5,6 +5,7 @@ namespace App\Notifications;
 use App\Models\Visitor;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
+use App\Notifications\Channels\FirebasePushChannel;
 
 class VisitorAwaitingApproval extends Notification
 {
@@ -14,7 +15,7 @@ class VisitorAwaitingApproval extends Notification
 
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return ['database', FirebasePushChannel::class];
     }
 
     public function toArray(object $notifiable): array

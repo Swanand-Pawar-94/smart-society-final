@@ -97,9 +97,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // FCM token alias — accepts both "token" and "fcm_token" fields (same handler)
     Route::post('fcm-token', [\App\Http\Controllers\Api\Devices\DeviceTokenController::class, 'store']);
 
-    // Visitor request test endpoint — any authenticated user (resident, security, admin)
-    // Triggers FCM push notification to the resident's device for end-to-end testing
-    Route::post('visitor-requests', [VisitorRequestController::class, 'store']);
+    // Compatibility endpoint for creating gate visitor requests in E2E flows.
+    Route::middleware('role:SECURITY')->post('visitor-requests', [VisitorRequestController::class, 'store']);
     Route::get('notifications', [NotificationController::class, 'index']);
     Route::get('notifications/unread-count', [NotificationController::class, 'unreadCount']);
     Route::match(['patch', 'post'], 'notifications/{notification}/read', [NotificationController::class, 'read']);

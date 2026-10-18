@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
@@ -50,6 +51,9 @@ class NotificationService {
 
   bool _initialized = false;
   GlobalKey<NavigatorState>? navigatorKey;
+  ApiService? _authenticatedApi;
+  StreamSubscription<String>? _tokenRefreshSubscription;
+  Map<String, dynamic>? _pendingNotificationData;
 
   Future<void> initialize({GlobalKey<NavigatorState>? navKey}) async {
     if (_initialized) return;
@@ -130,6 +134,22 @@ class NotificationService {
         debugPrint('[NotificationService] Background handler error: $e');
       }
 
+      // Register one refresh listener for the lifetime of the service. It
+      // reads the current authenticated API client, so account switches never
+      // post a token using a stale user's session.
+      _tokenRefreshSubscription ??= _fcm!.onTokenRefresh.listen((newToken) async {
+        final api = _authenticatedApi;
+        if (api?.token == null) return;
+        try {
+          await api!.post('device-tokens', {
+            'fcm_token': newToken,
+            'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
+          });
+        } catch (e) {
+          debugPrint('[FCM Token Refresh] Registration failed: $e');
+        }
+      });
+
       try {
         final settings = await _fcm!.requestPermission(
           alert: true,
@@ -196,9 +216,9 @@ class NotificationService {
 
   /// Called after login or session restore - gets FCM token and registers with Laravel.
   Future<void> registerDeviceToken(ApiService api, {String? userId, String? userEmail}) async {
-    debugPrint('======== FCM TOKEN REGISTRATION ========');
-    debugPrint('[FCM Token] User ID:    $userId');
-    debugPrint('[FCM Token] User Email: $userEmail');
+    // Never associate a device with an absent or stale auth session.
+    if (api.token == null || userId == null) return;
+    _authenticatedApi = api;
 
     try {
       final fcm = _fcm;
@@ -223,10 +243,6 @@ class NotificationService {
         debugPrint('========================================');
         return;
       }
-      debugPrint('[FCM Token] Token obtained (first 20 chars): ${token.substring(0, 20)}...');
-      debugPrint('[FCM Token] FULL TOKEN FOR DEBUGGING: $token');
-
-      debugPrint('[FCM Token] Sending token to Laravel (POST /api/device-tokens)...');
       try {
         await api.post('device-tokens', {
           'fcm_token': token,
@@ -237,21 +253,7 @@ class NotificationService {
         debugPrint('[FCM Token] FAILED to register token with Laravel: $e');
       }
 
-      fcm.onTokenRefresh.listen((newToken) async {
-        debugPrint('======== FCM TOKEN REFRESH ========');
-        debugPrint('[FCM Token Refresh] New token: ${newToken.substring(0, 20)}...');
-        try {
-          await api.post('device-tokens', {
-            'fcm_token': newToken,
-            'platform': defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android',
-          });
-          debugPrint('[FCM Token Refresh] New token registered with Laravel');
-        } catch (e) {
-          debugPrint('[FCM Token Refresh] FAILED to register refreshed token: $e');
-        }
-        debugPrint('===================================');
-      });
-      debugPrint('[FCM Token] Token refresh listener attached');
+      debugPrint('[FCM Token] Device token registered with backend');
     } catch (e) {
       debugPrint('[FCM Token] registerDeviceToken error: $e');
     }
@@ -262,6 +264,7 @@ class NotificationService {
   /// Remove device token on logout.
   Future<void> unregisterDeviceToken(ApiService api) async {
     debugPrint('[FCM Token] Unregistering device token on logout...');
+    if (identical(_authenticatedApi, api)) _authenticatedApi = null;
     try {
       final fcm = _fcm;
       if (fcm != null) {
@@ -274,7 +277,18 @@ class NotificationService {
       }
     } catch (e) {
       debugPrint('[FCM Token] Unregister error: $e');
+    } finally {
+      if (identical(_authenticatedApi, api)) _authenticatedApi = null;
     }
+  }
+
+  /// Dispatch a notification tap captured before Flutter had an authenticated
+  /// route mounted (for example, a terminated app launch).
+  void handlePendingNotification() {
+    final data = _pendingNotificationData;
+    if (data == null || navigatorKey?.currentContext == null) return;
+    _pendingNotificationData = null;
+    _handleRemoteMessageData(data);
   }
 
   /// Displays a heads-up notification when the app is in the foreground.
@@ -353,9 +367,19 @@ class NotificationService {
 
     debugPrint('[NotificationService] Handling type: "$type", visitor_id: $visitorId');
 
+    // Notification taps can arrive on the login screen or during session
+    // restoration. Keep only the structured payload until a valid session is
+    // registered; never expose visitor details or controls while logged out.
+    if (_authenticatedApi?.token == null) {
+      _pendingNotificationData = Map<String, dynamic>.from(data);
+      debugPrint('[NotificationService] Queued notification tap until authentication completes');
+      return;
+    }
+
     final context = navigatorKey?.currentContext;
     if (context == null) {
-      debugPrint('[NotificationService] No Navigator context — skipping UI navigation');
+      _pendingNotificationData = Map<String, dynamic>.from(data);
+      debugPrint('[NotificationService] Queued notification tap until navigation is ready');
       return;
     }
 

@@ -16,18 +16,19 @@ import 'state/auth_controller.dart';
 
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Print centralized API diagnostics at startup
   ApiConfig.printStartupDiagnostics();
 
+  // Firebase must be ready before AuthController.restore() tries to register
+  // the authenticated device token. Keep notification startup single-shot.
+  await NotificationService.instance.initialize(navKey: rootNavigatorKey);
+
   runApp(ChangeNotifierProvider(
       create: (_) => AuthController(ApiService())..restore(),
       child: const SmartSocietyApp()));
-  NotificationService.instance.initialize(navKey: rootNavigatorKey).catchError((e) {
-    debugPrint('Notification initialization notice: $e');
-  });
 }
 
 
@@ -50,6 +51,11 @@ class SessionGate extends StatelessWidget {
     final auth = context.watch<AuthController>();
     if (auth.loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (auth.session != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        NotificationService.instance.handlePendingNotification();
+      });
     }
     return auth.session == null
         ? const LoginScreen()

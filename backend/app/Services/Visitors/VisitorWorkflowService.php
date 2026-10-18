@@ -64,14 +64,6 @@ class VisitorWorkflowService
         $email = (string) $residentUser->email;
         $maskedEmail = preg_replace('/(?<=.{2}).(?=.*@)/u', '*', $email);
 
-        // Real Android push notification via FCM with sound and vibration
-        try {
-            $fcm = app(\App\Services\Notifications\FirebaseCloudMessagingService::class);
-            $fcm->sendVisitorApprovalNotification($residentUser, $visitor);
-        } catch (\Throwable $e) {
-            Log::warning('FCM PUSH NOTIFICATION FAILED', ['error' => $e->getMessage()]);
-        }
-
         // In-app notifications: notify the selected resident and all co-residents associated with this flat
         $notificationId = null;
         $visitor->setRelation('flat', $flat);
@@ -204,30 +196,8 @@ class VisitorWorkflowService
             'visitor_approved',
             'Visitor approved',
             sprintf('%s was approved by the resident.', $visitor->visitor_name),
-            ['visitor_id' => $visitor->id],
+            ['visitor_id' => $visitor->id, 'visitor_name' => $visitor->visitor_name],
         ));
-
-        // FCM push → only the specific security guard who created this request
-        try {
-            $securityUser = $visitor->createdBySecurity;
-            if ($securityUser) {
-                app(\App\Services\Notifications\FirebaseCloudMessagingService::class)->sendToUser(
-                    $securityUser,
-                    'Visitor Approved',
-                    sprintf('%s has been approved for entry.', $visitor->visitor_name),
-                    'visitor_approved',
-                    [
-                        'visitor_id'   => (string) $visitor->id,
-                        'visitor_name' => (string) $visitor->visitor_name,
-                    ],
-                );
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[FCM] Push failed for visitor_approved', [
-                'visitor_id' => $visitor->id,
-                'error'      => $e->getMessage(),
-            ]);
-        }
 
         return $visitor->fresh(['flat', 'resident']);
     }
@@ -248,30 +218,8 @@ class VisitorWorkflowService
             'visitor_rejected',
             'Visitor declined',
             sprintf('%s was declined by the resident.', $visitor->visitor_name),
-            ['visitor_id' => $visitor->id],
+            ['visitor_id' => $visitor->id, 'visitor_name' => $visitor->visitor_name],
         ));
-
-        // FCM push → only the specific security guard who created this request
-        try {
-            $securityUser = $visitor->createdBySecurity;
-            if ($securityUser) {
-                app(\App\Services\Notifications\FirebaseCloudMessagingService::class)->sendToUser(
-                    $securityUser,
-                    'Visitor Declined',
-                    sprintf('%s\'s entry request was declined by the resident.', $visitor->visitor_name),
-                    'visitor_rejected',
-                    [
-                        'visitor_id'   => (string) $visitor->id,
-                        'visitor_name' => (string) $visitor->visitor_name,
-                    ],
-                );
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[FCM] Push failed for visitor_rejected', [
-                'visitor_id' => $visitor->id,
-                'error'      => $e->getMessage(),
-            ]);
-        }
 
         return $visitor->fresh(['flat', 'resident']);
     }
@@ -296,33 +244,11 @@ class VisitorWorkflowService
                 'visitor_checked_in',
                 'Visitor checked in',
                 sprintf('%s has entered the society.', $lockedVisitor->visitor_name),
-                ['visitor_id' => $lockedVisitor->id],
+                ['visitor_id' => $lockedVisitor->id, 'visitor_name' => $lockedVisitor->visitor_name],
             ));
 
             return $lockedVisitor->fresh(['flat', 'resident']);
         });
-
-        // FCM push outside the transaction — avoids holding DB lock during HTTP call
-        try {
-            $residentUser = $result->resident?->user;
-            if ($residentUser) {
-                app(\App\Services\Notifications\FirebaseCloudMessagingService::class)->sendToUser(
-                    $residentUser,
-                    'Visitor Checked In',
-                    sprintf('%s has entered the society.', $result->visitor_name),
-                    'visitor_checked_in',
-                    [
-                        'visitor_id'   => (string) $result->id,
-                        'visitor_name' => (string) $result->visitor_name,
-                    ],
-                );
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[FCM] Push failed for visitor_checked_in', [
-                'visitor_id' => $result->id,
-                'error'      => $e->getMessage(),
-            ]);
-        }
 
         return $result;
     }
@@ -348,33 +274,11 @@ class VisitorWorkflowService
                 'visitor_checked_out',
                 'Visitor checked out',
                 sprintf('%s has exited the society.', $lockedVisitor->visitor_name),
-                ['visitor_id' => $lockedVisitor->id],
+                ['visitor_id' => $lockedVisitor->id, 'visitor_name' => $lockedVisitor->visitor_name],
             ));
 
             return $lockedVisitor->fresh(['flat', 'resident']);
         });
-
-        // FCM push outside the transaction — avoids holding DB lock during HTTP call
-        try {
-            $residentUser = $result->resident?->user;
-            if ($residentUser) {
-                app(\App\Services\Notifications\FirebaseCloudMessagingService::class)->sendToUser(
-                    $residentUser,
-                    'Visitor Checked Out',
-                    sprintf('%s has left the society.', $result->visitor_name),
-                    'visitor_checked_out',
-                    [
-                        'visitor_id'   => (string) $result->id,
-                        'visitor_name' => (string) $result->visitor_name,
-                    ],
-                );
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[FCM] Push failed for visitor_checked_out', [
-                'visitor_id' => $result->id,
-                'error'      => $e->getMessage(),
-            ]);
-        }
 
         return $result;
     }

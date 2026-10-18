@@ -30,7 +30,6 @@ class FirebaseCloudMessagingService
         if ($tokens->isEmpty()) {
             Log::info('[FCM] No active device tokens found for resident', [
                 'user_id' => $residentUser->id,
-                'name'    => $residentUser->name,
             ]);
             return ['status' => 'NO_TOKENS', 'sent' => 0];
         }
@@ -75,12 +74,12 @@ class FirebaseCloudMessagingService
             }
         }
 
-        $successCount = count(array_filter($results, fn ($r) => ($r['status'] ?? '') === 'DELIVERED'));
+        $successCount = count(array_filter($results, fn ($r) => ($r['status'] ?? '') === 'ACCEPTED'));
         Log::info('[FCM] Notification dispatch summary', [
             'visitor_id'    => $visitor->id,
             'user_id'       => $residentUser->id,
             'tokens_found'  => $tokens->count(),
-            'delivered'     => $successCount,
+            'accepted_by_fcm' => $successCount,
         ]);
 
         return ['status' => 'PROCESSED', 'results' => $results];
@@ -133,16 +132,16 @@ class FirebaseCloudMessagingService
             }
         }
 
-        $delivered = count(array_filter($results, fn ($r) => ($r['status'] ?? '') === 'DELIVERED'));
+        $accepted = count(array_filter($results, fn ($r) => ($r['status'] ?? '') === 'ACCEPTED'));
 
         Log::info('[FCM] sendToUser complete', [
             'user_id'   => $user->id,
             'type'      => $type,
             'tokens'    => $tokens->count(),
-            'delivered' => $delivered,
+            'accepted_by_fcm' => $accepted,
         ]);
 
-        return ['status' => 'PROCESSED', 'results' => $results, 'delivered' => $delivered];
+        return ['status' => 'PROCESSED', 'results' => $results, 'accepted_by_fcm' => $accepted];
     }
 
     /**
@@ -150,27 +149,20 @@ class FirebaseCloudMessagingService
      */
     public function sendToToken(string $fcmToken, string $title, string $body, array $data = []): array
     {
-        $projectId = config('services.firebase.project_id') ?? env('FIREBASE_PROJECT_ID');
+        $projectId = config('services.firebase.project_id');
 
         if (empty($projectId)) {
             Log::warning('[FCM] FIREBASE_PROJECT_ID is not set in .env');
             return ['status' => 'CONFIG_ERROR', 'message' => 'FIREBASE_PROJECT_ID not configured'];
         }
 
-        Log::info('[FCM] Dispatching push notification via HTTP v1 API', [
-            'title'         => $title,
-            'body_preview'  => substr($body, 0, 80),
-            'token_preview' => substr($fcmToken, 0, 16) . '...',
-            'project_id'    => $projectId,
-        ]);
-
         try {
             $accessToken = $this->getAccessToken();
         } catch (\Throwable $e) {
             Log::error('[FCM] Failed to obtain OAuth2 access token', [
-                'error' => $e->getMessage(),
+                'exception' => get_class($e),
             ]);
-            return ['status' => 'AUTH_ERROR', 'error' => $e->getMessage()];
+            return ['status' => 'AUTH_ERROR'];
         }
 
         $fcmUrl = "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send";
@@ -198,28 +190,26 @@ class FirebaseCloudMessagingService
         ];
 
         try {
-            $response = Http::withToken($accessToken)
+            $response = Http::connectTimeout(5)->timeout(10)->withToken($accessToken)
                 ->acceptJson()
                 ->post($fcmUrl, $payload);
 
             $responseData = $response->json();
 
             if ($response->successful()) {
-                Log::info('[FCM] Message delivered successfully via v1 API', [
+                Log::info('[FCM] Message accepted by FCM HTTP v1 API', [
                     'message_name' => $responseData['name'] ?? null,
-                    'token_preview' => substr($fcmToken, 0, 16) . '...',
                 ]);
-                return ['status' => 'DELIVERED', 'response' => $responseData];
+                return ['status' => 'ACCEPTED', 'response' => $responseData];
             }
 
             $errorCode   = $responseData['error']['status'] ?? 'UNKNOWN';
-            $errorMessage = $responseData['error']['message'] ?? $response->body();
+            $errorMessage = $responseData['error']['message'] ?? '';
 
             Log::error('[FCM] HTTP v1 API returned error', [
                 'http_status'   => $response->status(),
                 'error_status'  => $errorCode,
-                'error_message' => $errorMessage,
-                'token_preview' => substr($fcmToken, 0, 16) . '...',
+                'error_message' => $errorCode,
             ]);
 
             // Map known FCM error codes for token cleanup
@@ -231,14 +221,13 @@ class FirebaseCloudMessagingService
                 default => 'GATEWAY_ERROR',
             };
 
-            return ['status' => $status, 'error' => $errorMessage, 'http_status' => $response->status()];
+            return ['status' => $status, 'http_status' => $response->status()];
 
         } catch (\Throwable $e) {
             Log::error('[FCM] Exception during HTTP v1 API dispatch', [
-                'error' => $e->getMessage(),
                 'class' => get_class($e),
             ]);
-            return ['status' => 'EXCEPTION', 'error' => $e->getMessage()];
+            return ['status' => 'EXCEPTION'];
         }
     }
 
@@ -264,8 +253,7 @@ class FirebaseCloudMessagingService
      */
     private function loadCredentials(): array
     {
-        $path = config('services.firebase.credentials_file')
-            ?? env('FIREBASE_CREDENTIALS_FILE');
+        $path = config('services.firebase.credentials_file');
 
         if (empty($path)) {
             throw new \RuntimeException(
@@ -339,23 +327,19 @@ class FirebaseCloudMessagingService
      */
     private function exchangeJwtForToken(string $jwt): string
     {
-        $response = Http::asForm()->post(self::OAUTH_TOKEN_URL, [
+        $response = Http::connectTimeout(5)->timeout(10)->asForm()->post(self::OAUTH_TOKEN_URL, [
             'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
             'assertion'  => $jwt,
         ]);
 
         if (! $response->successful()) {
-            throw new \RuntimeException(
-                'Google OAuth2 token exchange failed: ' . $response->body()
-            );
+            throw new \RuntimeException('Google OAuth2 token exchange failed.');
         }
 
         $token = $response->json('access_token');
 
         if (empty($token)) {
-            throw new \RuntimeException(
-                'Google OAuth2 response did not contain an access_token. Response: ' . $response->body()
-            );
+            throw new \RuntimeException('Google OAuth2 response did not contain an access token.');
         }
 
         Log::info('[FCM] OAuth2 access token obtained successfully (cached for 55 min)');

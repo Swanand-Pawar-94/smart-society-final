@@ -18,6 +18,18 @@ class RazorpayPaymentTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Keep the suite deterministic and never use developer or production
+        // Razorpay credentials from the host environment.
+        config([
+            'services.razorpay.key_id' => 'rzp_test_dummy',
+            'services.razorpay.key_secret' => 'dummy_razorpay_secret_key',
+        ]);
+    }
+
     private function resident(string $flatNumber, string $email): Resident
     {
         $user = User::factory()->create([

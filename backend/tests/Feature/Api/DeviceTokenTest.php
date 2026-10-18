@@ -83,4 +83,33 @@ class DeviceTokenTest extends TestCase
             'is_active' => false,
         ]);
     }
+
+    public function test_registering_same_installation_for_another_account_deactivates_previous_owner(): void
+    {
+        $previousUser = User::factory()->create(['role' => 'RESIDENT']);
+        $currentUser = User::factory()->create(['role' => 'RESIDENT']);
+        UserDeviceToken::create([
+            'user_id' => $previousUser->id,
+            'fcm_token' => 'shared_installation_token',
+            'platform' => 'android',
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($currentUser, 'sanctum')
+            ->postJson('/api/device-tokens', [
+                'fcm_token' => 'shared_installation_token',
+                'platform' => 'android',
+            ])->assertCreated();
+
+        $this->assertDatabaseHas('user_device_tokens', [
+            'user_id' => $previousUser->id,
+            'fcm_token' => 'shared_installation_token',
+            'is_active' => false,
+        ]);
+        $this->assertDatabaseHas('user_device_tokens', [
+            'user_id' => $currentUser->id,
+            'fcm_token' => 'shared_installation_token',
+            'is_active' => true,
+        ]);
+    }
 }

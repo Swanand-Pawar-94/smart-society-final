@@ -45,16 +45,16 @@ enum ApiEnvironment {
 ///    Launch with: START_ANDROID_EMULATOR.bat
 ///    Or command:  flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api --dart-define=API_ENV=emulator
 ///
-/// D. PRODUCTION BUILD (Hostinger / Cloud):
-///    Command:     flutter build apk --release --dart-define=API_BASE_URL=https://your-domain.com/api
+/// D. PRODUCTION BUILD (Smart Society Cloud):
+///    Command:     flutter build apk --release --dart-define=API_ENV=production --dart-define=API_BASE_URL=https://smartsociety.codevizor.com/api
 class ApiConfig {
   const ApiConfig._();
 
   // ─── Environment Constants ──────────────────────────────────────────────────
 
-  /// Default production API Base URL placeholder for Hostinger deployment.
-  /// Configure live URL via: --dart-define=API_BASE_URL=https://api.yourdomain.com/api
-  static const String productionBaseUrl = 'https://api.smartsociety.com/api';
+  /// Live production API Base URL deployed on the Smart Society cloud backend.
+  /// Overrideable at build time via: --dart-define=API_BASE_URL=https://smartsociety.codevizor.com/api
+  static const String productionBaseUrl = 'https://smartsociety.codevizor.com/api';
 
   /// Android Emulator loopback URL (10.0.2.2 maps to host 127.0.0.1 in standard Android emulator)
   static const String emulatorBaseUrl = 'http://10.0.2.2:8000/api';
