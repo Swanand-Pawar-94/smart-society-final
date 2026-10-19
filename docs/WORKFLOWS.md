@@ -38,9 +38,9 @@ flowchart LR
     end
 
     DB[(Configured SQL database)]
-    FCM[Firebase Cloud Messaging HTTP v1\nwhen credentials are configured]
-    RZ[Razorpay API\nwhen server keys are configured]
-    Hosting[Production domain\nHostinger is described by a guide, not verified]
+    FCM["Firebase Cloud Messaging HTTP v1<br/>when credentials are configured"]
+    RZ["Razorpay API<br/>when server keys are configured"]
+    Hosting["Production domain<br/>Hostinger is described by a guide, not verified"]
 
     API -->|JSON over HTTP(S), Bearer token| Hosting
     Hosting --> Routes
@@ -181,7 +181,7 @@ Administrators can create or update bills with a total or component charges (`ba
 
 Residents see only bills for their flat. The server computes outstanding balances and order totals; a client-supplied amount is not authoritative. Direct maintenance-payment records support tracking/admin workflows separately from Razorpay. Razorpay orders use a server-held key/secret, and verification checks an HMAC signature before recording payment, receipt, and transaction ledger entries. Payment order transitions and gateway verification use database transactions/locks and duplicate references are constrained. Demo confirmation is available only when `PAYMENT_MODE=demo`.
 
-The actual production key mode, merchant activation, webhook configuration and live transaction result are unknown. See [API Reference — payments](API_REFERENCE.md#payments-and-maintenance) and [Deployment, testing and security](DEPLOYMENT_TESTING_SECURITY.md#payment-gateway-status).
+The actual production key mode, merchant activation, webhook configuration and live transaction result are unknown. See [API Reference — payments](API_REFERENCE.md#maintenance-and-payments) and [Payments](../README.md#payments).
 
 ## Penalty management — actual rules and gaps
 

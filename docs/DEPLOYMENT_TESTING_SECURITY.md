@@ -28,8 +28,8 @@ The repository contains a tracked Android release keystore file. Its contents ar
 ### Backend
 
 ```powershell
-git clone https://github.com/Swanand-Pawar-94/smart-society.git
-Set-Location smart-society/backend
+git clone https://github.com/Swanand-Pawar-94/smart-society-final.git
+Set-Location smart-society-final/backend
 composer install
 Copy-Item .env.example .env
 ```
@@ -154,7 +154,7 @@ Build and device installation are separate verification steps: a successful sour
 - Android's main manifest allows cleartext traffic. Production builds must use HTTPS API URLs; this flag is not transport security.
 - `backend/.env.example` does not enumerate Firebase environment names despite the service reading them. Set required variables through protected deployment configuration.
 - Penalty rule bounds, grace period, and `requires_evidence` are stored but not enforced by the current decision handler; admin-entered amount is used. See the [penalty workflow](WORKFLOWS.md#penalty-management--actual-rules-and-gaps).
-- Parcel controller routes duplicate workflow-service behavior; the routed collection action does not use the service's locking path or send the service's collection notification. See [module caveats](WORKFLOWS.md#other-modules-and-implementation-caveats).
+- Parcel controller routes duplicate workflow-service behavior; the routed collection action does not use the service's locking path or send the service's collection notification. See [module caveats](WORKFLOWS.md#other-module-workflows).
 - Live database, external provider credentials, hosting topology, production signing identity, and full deployed workflow status remain unverified.
 
 ## Troubleshooting

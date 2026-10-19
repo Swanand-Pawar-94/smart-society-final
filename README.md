@@ -14,12 +14,14 @@
 
 Nivora is a residential society management application with a Flutter Android client and a Laravel JSON API. The application supports resident, security, staff, and administrator workflows for visitor access, maintenance dues, parcels, complaints, notices, and other society operations.
 
-The source repository is [Swanand-Pawar-94/smart-society](https://github.com/Swanand-Pawar-94/smart-society), with the mobile client in `mobile/` and backend in `backend/`. The configured production API domain is [smartsociety.codevizor.com](https://smartsociety.codevizor.com). Its public health endpoint returned HTTP 200 during a check on 2026-10-19. That confirms the endpoint was responding; it does not verify every production workflow, its hosting provider, or payment and Firebase credentials.
+The source repository is [Swanand-Pawar-94/smart-society-final](https://github.com/Swanand-Pawar-94/smart-society-final), with the mobile client in `mobile/` and backend in `backend/`. The configured production API domain is [smartsociety.codevizor.com](https://smartsociety.codevizor.com). Its public health endpoint returned HTTP 200 during a check on 2026-10-19. That confirms the endpoint was responding; it does not verify every production workflow, its hosting provider, or payment and Firebase credentials.
 
 ## Contents
 
 - [Project scope](#project-scope)
 - [Implemented workflows](#implemented-workflows)
+- [Feature directory](#feature-directory)
+- [Main application modules](#main-application-modules)
 - [Roles and access](#roles-and-access)
 - [Architecture and technology](#architecture-and-technology)
 - [Repository layout](#repository-layout)
@@ -64,7 +66,53 @@ The items below are based on current Flutter screens/API calls, Laravel routes a
 | Messaging | Authenticated conversation and message endpoints and Flutter conversation views are present. The repository does not configure a real-time broadcasting transport, so this is documented as API-backed messaging rather than live chat. |
 | Penalties | Security can submit a violation report (including evidence); administrators manage rules and decide reports/appeals; residents can view their records, appeal, and submit payment. Feature tests cover authorization, evidence access, decisions, and payment idempotency. |
 
-The codebase also contains staff management and selection-option endpoints. Avoid assuming that every administrative operation has a dedicated Flutter screen: several mobile record/form workflows are implemented through shared module screens.
+The codebase also contains staff management and selection-option endpoints. Avoid assuming that every administrative operation has a dedicated Flutter screen: several mobile record/form workflows are implemented through shared module screens. The [feature catalog](docs/FEATURES.md) distinguishes implemented behavior from partial integrations and known limits.
+
+## Feature directory
+
+Each link opens the dedicated implementation-backed explanation in [docs/FEATURES.md](docs/FEATURES.md). The catalog records status, role access, current screen paths, steps, backend behavior, relevant data, outcomes, limits, and existing tests.
+
+| Feature | Detailed guide |
+| --- | --- |
+| Sign-in, registration, account access | [Authentication](docs/FEATURES.md#sign-in-registration-and-account-access) |
+| Role navigation and API permissions | [Role access](docs/FEATURES.md#role-access-and-navigation) |
+| Profiles, residents, units | [Profiles](docs/FEATURES.md#profiles-and-resident-records), [Units](docs/FEATURES.md#units-and-society-records) |
+| Role dashboards | [Resident](docs/FEATURES.md#resident-dashboard), [Security](docs/FEATURES.md#security-dashboard), [Administrator](docs/FEATURES.md#administrator-dashboard), [Staff](docs/FEATURES.md#staff-workspace) |
+| Visitor approval and gate operations | [Visitor requests](docs/FEATURES.md#visitor-requests-and-pre-approval), [Check-in/out and history](docs/FEATURES.md#gate-check-in-check-out-and-history) |
+| Maintenance and resident payments | [Bills and invoices](docs/FEATURES.md#maintenance-bills-and-invoices), [Payment tracking](docs/FEATURES.md#payment-tracking-and-history), [Razorpay](docs/FEATURES.md#razorpay-payments), [Payment administration](docs/FEATURES.md#payment-administration-and-resident-transactions) |
+| Penalties | [Rules](docs/FEATURES.md#penalty-rules), [Reports and decisions](docs/FEATURES.md#penalty-reports-and-decisions), [Appeals and payment](docs/FEATURES.md#penalty-appeals-and-payment) |
+| Community operations | [Parcels](docs/FEATURES.md#parcels), [Complaints](docs/FEATURES.md#complaints), [Notices](docs/FEATURES.md#notices), [Staff management](docs/FEATURES.md#staff-management), [Parking](docs/FEATURES.md#parking), [Amenities and bookings](docs/FEATURES.md#amenities-and-bookings) |
+| Notifications, reports, messaging, diagnostics | [Notifications](docs/FEATURES.md#in-app-and-push-notifications), [Reports](docs/FEATURES.md#reports-and-analytics), [Messaging](docs/FEATURES.md#messaging), [Diagnostics](docs/FEATURES.md#diagnostic-and-emergency-actions) |
+
+## Main application modules
+
+### Accounts and role-based workspaces
+
+Users sign in with an email address or mobile number and a password. The client obtains a Sanctum bearer token and stores it securely; Laravel separately checks role and record access on protected routes. Resident, security, administrator, and staff users see different navigation. Registration supports resident, staff, and security accounts, while staff/security activation and administrator provisioning have separate controls. See [account access](docs/FEATURES.md#sign-in-registration-and-account-access) and [roles](docs/FEATURES.md#role-access-and-navigation).
+
+### Residents, units, and dashboards
+
+Administrators manage resident and unit records; a resident’s `My Unit` view is scoped to their account. Role dashboards summarize operational data and link into the relevant modules. Dashboard cards are summaries: visitor, finance, complaint, parcel, and penalty states must be confirmed in their module. The project schema supports one society rather than multiple isolated societies. See [profiles](docs/FEATURES.md#profiles-and-resident-records), [units](docs/FEATURES.md#units-and-society-records), and the individual dashboard guides in the feature directory above.
+
+### Visitor access and gate operations
+
+Residents can pre-approve visitors or respond to pending requests. Security records gate requests and checks in approved eligible visitors; check-out closes the visit and preserves history. The API rejects invalid or duplicate state transitions. The Security dashboard’s `Vehicle entry` currently follows the visitor intake flow and does not record a vehicle plate; `Emergency alert` only shows local confirmation and has no verified server dispatch. See [visitor requests](docs/FEATURES.md#visitor-requests-and-pre-approval) and [gate actions](docs/FEATURES.md#gate-check-in-check-out-and-history).
+
+### Maintenance, dues, and payment records
+
+Administrators maintain bills; residents view invoices, outstanding balances, payment history, and transaction activity. Selected bills use server-calculated checkout totals. Manual payment submissions and gateway payments have separate statuses and should not be treated as settled until backend history confirms the result. Razorpay order/signature verification is implemented, but live production credentials and transactions are unverified. See [maintenance bills](docs/FEATURES.md#maintenance-bills-and-invoices), [payment tracking](docs/FEATURES.md#payment-tracking-and-history), and [Razorpay limitations](docs/FEATURES.md#razorpay-payments).
+
+### Penalties and violations
+
+Security can file violation reports with details and evidence; administrators review the report and may issue a warning, approve a charge, or reject it. Residents can see assigned penalties and submit appeals. Rule fields for amount bounds, grace, and evidence are stored but not all are enforced by the decision path; an admin-entered decision amount is operative. The report-list endpoint also has a role-scoping caveat documented in the [feature guide](docs/FEATURES.md#penalty-reports-and-decisions).
+
+### Community operations
+
+Residents can submit complaints, browse notices, record/view parcels according to role, view parking information, and request amenity bookings. Admin/staff/security actions depend on the module and role. Amenity bookings enforce active status, valid time order, and conflicts, but a live availability calendar and opening-hour checks are not verified. Parcel collection has a concurrency/notification caveat. See [parcels](docs/FEATURES.md#parcels), [complaints](docs/FEATURES.md#complaints), and [amenities](docs/FEATURES.md#amenities-and-bookings).
+
+### Notifications, reports, and messages
+
+Database notifications and read-state controls are implemented. FCM token registration and send services exist, but live push delivery requires Firebase configuration and has not been verified in production. Administrator reports summarize operations for selected periods. Messaging persists conversations/messages, but no real-time transport or create-conversation interface is configured. See [notifications](docs/FEATURES.md#in-app-and-push-notifications), [reports](docs/FEATURES.md#reports-and-analytics), and [messaging](docs/FEATURES.md#messaging).
 
 ## Roles and access
 
@@ -81,12 +129,12 @@ The `role` middleware enforces role names at the API boundary. Controllers and p
 
 ```mermaid
 flowchart LR
-    Flutter[Flutter Android app\nProvider + ApiService] -->|JSON over HTTP(S)\nSanctum bearer token| Laravel[Laravel API]
-    Laravel --> DB[(SQLite locally or configured SQL database)]
-    Flutter -->|FCM device token| Laravel
-    Laravel -->|FCM HTTP v1 when configured| Firebase[Firebase Cloud Messaging]
-    Flutter -->|Razorpay checkout flow| Razorpay[Razorpay, configuration dependent]
-    Laravel -->|Create order / verify signature| Razorpay
+    Flutter["Flutter Android app<br/>Provider and ApiService"] -->|"JSON over HTTP(S); Sanctum bearer token"| Laravel["Laravel API"]
+    Laravel --> DB[("SQLite locally or configured SQL database")]
+    Flutter -->|"FCM device token"| Laravel
+    Laravel -->|"FCM HTTP v1 when configured"| Firebase["Firebase Cloud Messaging"]
+    Flutter -->|"Razorpay checkout flow"| Razorpay["Razorpay; configuration dependent"]
+    Laravel -->|"Create order and verify signature"| Razorpay
 ```
 
 **Backend:** PHP 8.3+, Laravel `^13.8`, Laravel Sanctum, Eloquent, PHPUnit 12.
@@ -113,7 +161,7 @@ SmartSociety/
 │   ├── test/                 # Flutter tests
 │   └── pubspec.yaml
 ├── deployment/               # Deployment guide, environment template, SQL dump
-├── docs/                      # Flutter setup documentation
+├── docs/                      # User guide, feature catalog, and technical docs
 ├── PHYSICAL_DEVICE_SETUP.md
 └── README.md
 ```
@@ -284,6 +332,7 @@ Potential future work includes multi-society tenancy, a real-time messaging tran
 
 | Guide | Use it for |
 | --- | --- |
+| [Feature catalog](docs/FEATURES.md) | Dedicated module-by-module behavior, roles, navigation, backend rules, data, limitations, and test inventory. |
 | [Mobile app user guide](docs/USER_GUIDE.md) | Resident, security, staff, and administrator instructions for the app's verified screens and workflows. |
 | [Architecture and workflows](docs/WORKFLOWS.md) | Request lifecycle, roles, authentication, module workflows, validation, side effects, and implementation caveats. |
 | [API reference](docs/API_REFERENCE.md) | Endpoint methods, paths, access, request fields, validation, and behavior by module. |
@@ -302,6 +351,6 @@ Potential future work includes multi-society tenancy, a real-time messaging tran
 
 ## Contributing and maintenance
 
-Issues and pull requests can be opened in the [project repository](https://github.com/Swanand-Pawar-94/smart-society). Keep changes focused, preserve secrets and production data, and update the relevant documentation when routes, permissions, schema, environment variables, or workflows change. Run the applicable backend and Flutter checks listed in [Tests](#tests) and include their actual results in a change description. No separate contribution policy was found during this documentation pass.
+Issues and pull requests can be opened in the [project repository](https://github.com/Swanand-Pawar-94/smart-society-final). Keep changes focused, preserve secrets and production data, and update the relevant documentation when routes, permissions, schema, environment variables, or workflows change. Run the applicable backend and Flutter checks listed in [Tests](#tests) and include their actual results in a change description. No separate contribution policy was found during this documentation pass.
 
 This README and its supporting guides describe the inspected repository state on 2026-10-19. They should be reviewed alongside implementation changes; production behavior can differ from the code until deployment and integrations are verified.
