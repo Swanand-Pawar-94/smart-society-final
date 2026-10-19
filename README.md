@@ -284,6 +284,7 @@ Potential future work includes multi-society tenancy, a real-time messaging tran
 
 | Guide | Use it for |
 | --- | --- |
+| [Mobile app user guide](docs/USER_GUIDE.md) | Resident, security, staff, and administrator instructions for the app's verified screens and workflows. |
 | [Architecture and workflows](docs/WORKFLOWS.md) | Request lifecycle, roles, authentication, module workflows, validation, side effects, and implementation caveats. |
 | [API reference](docs/API_REFERENCE.md) | Endpoint methods, paths, access, request fields, validation, and behavior by module. |
 | [Data model and business rules](docs/DATA_MODEL.md) | Migration-backed ER diagram, table mapping, relationships, constraints, and status rules. |
