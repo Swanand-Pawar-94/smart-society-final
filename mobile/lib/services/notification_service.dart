@@ -9,6 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../firebase_options.dart';
 import '../main.dart';
 import 'api_service.dart';
+import '../screens/penalties_screen.dart';
 
 /// Top-level background message handler - must be a free function (not a method).
 @pragma('vm:entry-point')
@@ -384,6 +385,18 @@ class NotificationService {
     }
 
     switch (type) {
+      case 'penalty_warning_issued':
+      case 'penalty_approved':
+      case 'penalty_rejected':
+      case 'penalty_appeal_submitted':
+      case 'penalty_appeal_decided':
+      case 'penalty_payment_successful':
+        final reportId = int.tryParse(data['report_id']?.toString() ?? '');
+        final role = data['audience']?.toString() == 'ADMIN' ? 'ADMIN' : 'RESIDENT';
+        navigatorKey?.currentState?.push(MaterialPageRoute<void>(
+          builder: (_) => PenaltiesScreen(role: role, reportId: reportId),
+        ));
+        break;
       // ── Resident receives a new visitor approval request ────────────────
       case 'visitor_request':
       case 'visitor_approval_request':

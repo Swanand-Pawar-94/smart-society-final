@@ -33,11 +33,20 @@ class PaymentOrderResource extends JsonResource
             'items' => $this->whenLoaded('items', fn () => $this->items->map(fn ($item) => [
                 'id' => $item->id,
                 'maintenance_bill_id' => $item->maintenance_bill_id,
+                'penalty_id' => $item->penalty_id,
                 'amount' => $item->amount,
                 'bill' => $item->relationLoaded('bill') && $item->bill ? [
                     'billing_month' => $item->bill->billing_month?->toDateString(),
                     'due_date' => $item->bill->due_date?->toDateString(),
                     'status' => $item->bill->status,
+                ] : null,
+                'penalty' => $item->relationLoaded('penalty') && $item->penalty ? [
+                    'id' => $item->penalty->id,
+                    'status' => $item->penalty->status,
+                    'payment_status' => $item->penalty->payment_status,
+                    'disciplinary_amount' => $item->penalty->disciplinary_amount,
+                    'late_fee_amount' => $item->penalty->late_fee_amount,
+                    'repair_cost' => $item->penalty->repair_cost,
                 ] : null,
             ])),
             'payments' => MaintenancePaymentResource::collection($this->whenLoaded('maintenancePayments')),

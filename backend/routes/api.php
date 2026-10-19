@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\Options\SelectionOptionsController;
 use App\Http\Controllers\Api\Parcels\ParcelController;
 use App\Http\Controllers\Api\Parking\ParkingController;
 use App\Http\Controllers\Api\Payment\PaymentGatewayController;
+use App\Http\Controllers\Api\Penalties\PenaltyController;
 use App\Http\Controllers\Api\Reports\AdminReportController;
 use App\Http\Controllers\Api\Residents\ResidentController;
 use App\Http\Controllers\Api\Staff\AdminStaffMemberController;
@@ -90,6 +91,25 @@ Route::prefix('auth')->group(function (): void {
 });
 
 Route::middleware('auth:sanctum')->group(function (): void {
+    Route::get('penalty-rules', [PenaltyController::class, 'rules']);
+    Route::get('penalty-reports', [PenaltyController::class, 'reports']);
+    Route::get('penalty-reports/{report}', [PenaltyController::class, 'show']);
+    Route::get('penalty-evidence/{evidence}', [PenaltyController::class, 'evidence']);
+    Route::middleware('role:SECURITY')->post('penalty-reports', [PenaltyController::class, 'store']);
+    Route::middleware('role:ADMIN')->group(function (): void {
+        Route::get('admin/penalty-dashboard', [PenaltyController::class, 'dashboard']);
+        Route::post('admin/penalty-reports/{report}/decision', [PenaltyController::class, 'decide']);
+        Route::get('admin/penalty-rules', [PenaltyController::class, 'rulesAdmin']);
+        Route::post('admin/penalty-rules', [PenaltyController::class, 'saveRule']);
+        Route::put('admin/penalty-rules/{rule}', [PenaltyController::class, 'saveRule']);
+        Route::get('admin/penalty-appeals', [PenaltyController::class, 'appeals']);
+        Route::post('admin/penalty-appeals/{appeal}/decision', [PenaltyController::class, 'decideAppeal']);
+    });
+    Route::middleware('role:RESIDENT')->group(function (): void {
+        Route::post('resident/penalties/{penalty}/appeals', [PenaltyController::class, 'appeal']);
+        Route::post('resident/penalties/{penalty}/payment', [PenaltyController::class, 'payment']);
+    });
+
     // FCM device token registration (canonical endpoint)
     Route::post('device-tokens', [\App\Http\Controllers\Api\Devices\DeviceTokenController::class, 'store']);
     Route::delete('device-tokens', [\App\Http\Controllers\Api\Devices\DeviceTokenController::class, 'destroy']);

@@ -31,6 +31,55 @@ class ApiService {
       _request('PUT', path, body);
   Future<Map<String, dynamic>> delete(String path) => _request('DELETE', path);
 
+  Future<Uint8List> getBytes(String path) async {
+    final base = ApiConfig.baseUrl.endsWith('/')
+        ? ApiConfig.baseUrl.substring(0, ApiConfig.baseUrl.length - 1)
+        : ApiConfig.baseUrl;
+    final normalized = path.startsWith('/') ? path.substring(1) : path;
+    final response = await _client.get(Uri.parse('$base/$normalized'), headers: {
+      'Accept': '*/*',
+      if (token != null) 'Authorization': 'Bearer $token',
+    }).timeout(const Duration(seconds: 20));
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.bodyBytes;
+    }
+    if (response.statusCode == 401) await onUnauthorized?.call();
+    throw ApiException('Evidence could not be loaded (${response.statusCode}).',
+        statusCode: response.statusCode);
+  }
+
+  Future<Map<String, dynamic>> postMultipart(
+      String path, Map<String, String> fields, Map<String, String> filePaths,
+      {String fileField = 'evidence[]'}) async {
+    final base = ApiConfig.baseUrl.endsWith('/')
+        ? ApiConfig.baseUrl.substring(0, ApiConfig.baseUrl.length - 1)
+        : ApiConfig.baseUrl;
+    final normalized = path.startsWith('/') ? path.substring(1) : path;
+    final request = http.MultipartRequest('POST', Uri.parse('$base/$normalized'))
+      ..headers.addAll({
+        'Accept': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      })
+      ..fields.addAll(fields);
+    for (final entry in filePaths.entries) {
+      request.files.add(await http.MultipartFile.fromPath(
+          entry.key.isEmpty ? fileField : entry.key, entry.value));
+    }
+    final streamed = await _client.send(request).timeout(const Duration(seconds: 30));
+    final response = await http.Response.fromStream(streamed);
+    final decoded = response.body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode >= 200 && response.statusCode < 300) return decoded;
+    if (response.statusCode == 401) await onUnauthorized?.call();
+    final errors = decoded['errors'];
+    final detail = errors is Map && errors.isNotEmpty
+        ? (errors.values.first as List).first.toString()
+        : decoded['message']?.toString();
+    throw ApiException(detail ?? 'Request failed (${response.statusCode}).',
+        statusCode: response.statusCode);
+  }
+
   /// Performs a test health check call to verify connectivity to Laravel backend.
   Future<bool> testHealthCheck() async {
     if (!ApiConfig.isValid) {

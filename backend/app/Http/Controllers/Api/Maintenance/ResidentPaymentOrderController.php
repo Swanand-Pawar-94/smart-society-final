@@ -27,7 +27,7 @@ class ResidentPaymentOrderController extends Controller
         $resident = $request->user()->resident()->firstOrFail();
 
         $orders = PaymentOrder::query()
-            ->with('items.bill:id,billing_month,due_date')
+            ->with(['items.bill:id,billing_month,due_date', 'items.penalty'])
             ->where('resident_id', $resident->id)
             ->latest()
             ->paginate();
@@ -56,7 +56,7 @@ class ResidentPaymentOrderController extends Controller
         Gate::authorize('view', $paymentOrder);
         $this->currentResident($request);
 
-        return new PaymentOrderResource($paymentOrder->load(['items.bill', 'maintenancePayments.bill', 'receipt']));
+        return new PaymentOrderResource($paymentOrder->load(['items.bill', 'items.penalty', 'maintenancePayments.bill', 'receipt']));
     }
 
     public function store(Request $request): JsonResponse

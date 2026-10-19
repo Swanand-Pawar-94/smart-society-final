@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class PaymentOrderItem extends Model
 {
-    protected $fillable = ['payment_order_id', 'maintenance_bill_id', 'amount'];
+    protected $fillable = ['payment_order_id', 'maintenance_bill_id', 'penalty_id', 'amount'];
 
     protected function casts(): array
     {
@@ -21,5 +21,10 @@ class PaymentOrderItem extends Model
     public function bill()
     {
         return $this->belongsTo(MaintenanceBill::class, 'maintenance_bill_id');
+    }
+
+    public function penalty()
+    {
+        return $this->belongsTo(Penalty::class);
     }
 }

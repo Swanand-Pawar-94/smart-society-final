@@ -22,7 +22,7 @@ class AdminPaymentOrderController extends Controller
         Gate::authorize('viewAny', PaymentOrder::class);
 
         $orders = PaymentOrder::query()
-            ->with(['resident.user', 'flat', 'items.bill'])
+            ->with(['resident.user', 'flat', 'items.bill', 'items.penalty'])
             ->when($request->query('status'), fn ($query, string $status) => $query->where('status', $status))
             ->latest()
             ->paginate();
@@ -35,13 +35,19 @@ class AdminPaymentOrderController extends Controller
         Gate::authorize('view', $paymentOrder);
 
         return new PaymentOrderResource($paymentOrder->load([
-            'resident.user', 'flat', 'items.bill', 'maintenancePayments.bill', 'receipt',
+            'resident.user', 'flat', 'items.bill', 'items.penalty', 'maintenancePayments.bill', 'receipt',
         ]));
     }
 
     public function transition(TransitionPaymentOrderRequest $request, PaymentOrder $paymentOrder): PaymentOrderResource
     {
         Gate::authorize('transition', $paymentOrder);
+        if ($request->validated('status') === PaymentOrder::STATUS_SUCCESSFUL
+            && $paymentOrder->items()->whereNotNull('penalty_id')->exists()) {
+            throw ValidationException::withMessages([
+                'status' => 'Penalty orders can only be completed through verified gateway callbacks.',
+            ]);
+        }
 
         return new PaymentOrderResource(
             $this->orders->transition($paymentOrder, $request->validated()),

@@ -9,6 +9,7 @@ import 'core/time_picker_helper.dart';
 import 'screens/security_check_in_screen.dart';
 import 'screens/security_check_out_screen.dart';
 import 'screens/security_checked_out_history_screen.dart';
+import 'screens/penalties_screen.dart';
 import 'screens/transaction_history_screen.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
@@ -1346,6 +1347,7 @@ class RoleHome extends StatelessWidget {
             'Profile',
             'Visitors',
             'Parcels',
+            'Penalties',
             'Notices',
             'Messages',
             'Notifications'
@@ -1369,6 +1371,7 @@ class RoleHome extends StatelessWidget {
                     'Visitors',
                     'Maintenance',
                     'Payments',
+                    'Penalties',
                     'Reports',
                     'Complaints',
                     'Notices',
@@ -1381,6 +1384,7 @@ class RoleHome extends StatelessWidget {
                     'Notifications'
                   ]
                 : const [
+                    'Penalties',
                     'Profile',
                     'Visitors',
                     'Maintenance',
@@ -1428,6 +1432,8 @@ class RoleHome extends StatelessWidget {
                                     ? RoleDashboardScreen(role: role)
                                     : role == 'ADMIN' && page == 'Payments'
                                         ? const AdminPaymentsScreen()
+                                        : page == 'Penalties'
+                                            ? PenaltiesScreen(role: role)
                                         : ModuleScreen(
                                             title: page, role: role)))))
         ]));
@@ -8181,6 +8187,19 @@ class _ModuleScreenState extends State<ModuleScreen> {
                               : _endpoint == 'admin/payment-orders'
                                   ? PaymentOrderDetailScreen(
                                       order: item, admin: true)
+                                  : _endpoint == 'notifications' &&
+                                          item['data'] is Map &&
+                                          (item['data'] as Map)['type']
+                                              ?.toString()
+                                              .startsWith('penalty_') ==
+                                          true
+                                      ? PenaltiesScreen(
+                                          role: widget.role,
+                                          reportId: int.tryParse(
+                                              (item['data'] as Map)['report_id']
+                                                      ?.toString() ??
+                                                  ''),
+                                        )
                                   : RecordDetailScreen(
                                       title: widget.title,
                                       endpoint: _endpoint,

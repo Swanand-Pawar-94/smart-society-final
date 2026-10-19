@@ -7,6 +7,8 @@ use App\Models\MaintenancePayment;
 use App\Models\PaymentOrder;
 use App\Models\PaymentOrderItem;
 use App\Models\PaymentReceipt;
+use App\Models\Penalty;
+use App\Models\PenaltyAuditLog;
 use App\Models\Resident;
 use App\Notifications\SocietyAlert;
 use App\Services\Payment\RazorpayGatewayService;
@@ -387,6 +389,32 @@ class PaymentOrderService
     private function recordVerifiedOrderPayments(PaymentOrder $order, string $gatewayPaymentId): void
     {
         foreach ($order->items as $item) {
+            if ($item->penalty_id !== null) {
+                $penalty = Penalty::query()->lockForUpdate()->findOrFail($item->penalty_id);
+                if ((int) $penalty->resident_id !== (int) $order->resident_id
+                    || $penalty->status !== 'approved'
+                    || $penalty->payment_status !== 'unpaid'
+                    || round((float) $item->amount, 2) !== round((float) $penalty->disciplinary_amount + (float) $penalty->repair_cost + (float) $penalty->late_fee_amount, 2)) {
+                    throw ValidationException::withMessages(['payment' => 'This penalty is no longer eligible for this payment order.']);
+                }
+                $penalty->update(['payment_status' => 'paid']);
+                PenaltyAuditLog::create([
+                    'violation_report_id' => $penalty->violation_report_id,
+                    'user_id' => $order->resident?->user_id ?? $penalty->decided_by_user_id,
+                    'action' => 'payment_verified',
+                    'from_status' => 'unpaid',
+                    'to_status' => 'paid',
+                    'reason' => 'Verified payment '.$gatewayPaymentId,
+                    'details' => ['payment_order_id' => $order->id, 'amount' => (float) $item->amount],
+                ]);
+                $order->resident?->user?->notify(new SocietyAlert(
+                    'penalty_payment_successful',
+                    'Penalty payment successful',
+                    'Your approved penalty payment has been verified.',
+                    ['penalty_id' => $penalty->id, 'report_id' => $penalty->violation_report_id, 'payment_order_id' => $order->id, 'audience' => 'RESIDENT'],
+                ));
+                continue;
+            }
             $bill = MaintenanceBill::query()->lockForUpdate()->findOrFail($item->maintenance_bill_id);
             $paid = (float) $bill->payments()
                 ->where('status', MaintenancePayment::STATUS_COMPLETED)
@@ -419,6 +447,41 @@ class PaymentOrderService
 
             $this->refreshBillStatus($bill);
         }
+    }
+
+    /** Build a checkout order for one approved penalty using the verified Razorpay callback path. */
+    public function createRazorpayOrderForPenalty(Resident $resident, Penalty $penalty, string $method = MaintenancePayment::METHOD_UPI): array
+    {
+        if (! $this->razorpay->isConfigured()) {
+            throw new \App\Exceptions\PaymentGatewayUnavailableException('Penalty checkout is unavailable until Razorpay credentials are configured.');
+        }
+
+        return DB::transaction(function () use ($resident, $penalty, $method): array {
+            $penalty = Penalty::query()->whereKey($penalty->id)->lockForUpdate()->firstOrFail();
+            if ((int) $penalty->resident_id !== (int) $resident->id || $penalty->status !== 'approved' || $penalty->payment_status !== 'unpaid') {
+                throw ValidationException::withMessages(['penalty' => 'This penalty is not eligible for payment.']);
+            }
+            $amount = round((float) $penalty->disciplinary_amount + (float) $penalty->repair_cost + (float) $penalty->late_fee_amount, 2);
+            if ($amount <= 0) throw ValidationException::withMessages(['penalty' => 'This penalty has no payable balance.']);
+
+            $existing = PaymentOrder::query()->where('resident_id', $resident->id)
+                ->whereIn('status', [PaymentOrder::STATUS_PENDING, PaymentOrder::STATUS_PROCESSING])
+                ->whereHas('items', fn ($query) => $query->where('penalty_id', $penalty->id))
+                ->with('items')->latest()->first();
+            if ($existing) {
+                if (round((float) $existing->amount, 2) === $amount) {
+                    return ['payment_order_id' => $existing->id, 'order_id' => $existing->provider_reference, 'amount' => (int) round($amount * 100), 'amount_formatted' => $amount, 'currency' => 'INR', 'key_id' => $this->razorpay->getKeyId(), 'name' => config('society.name') ?: config('app.name'), 'description' => 'Approved penalty', 'prefill' => ['name' => $resident->user?->name ?? '', 'email' => $resident->user?->email ?? '', 'contact' => $resident->user?->phone ?? '']];
+                }
+                $existing->update(['status' => PaymentOrder::STATUS_CANCELLED, 'verification_note' => 'Cancelled because the approved penalty amount changed.']);
+            }
+
+            $order = PaymentOrder::create(['resident_id' => $resident->id, 'flat_id' => $resident->flat_id, 'amount' => $amount, 'payment_method' => $method, 'status' => PaymentOrder::STATUS_PENDING, 'provider' => 'RAZORPAY', 'provider_reference' => 'TEMP-'.Str::upper(Str::random(12))]);
+            PaymentOrderItem::create(['payment_order_id' => $order->id, 'penalty_id' => $penalty->id, 'amount' => $amount]);
+            $gatewayOrder = $this->razorpay->createOrder($amount, 'PENALTY-'.$penalty->id.'-'.$order->id, ['payment_order_id' => $order->id, 'penalty_id' => $penalty->id, 'resident_id' => $resident->id]);
+            $order->update(['provider_reference' => $gatewayOrder['id']]);
+            $resident->loadMissing('user');
+            return ['payment_order_id' => $order->id, 'order_id' => $gatewayOrder['id'], 'amount' => (int) round($amount * 100), 'amount_formatted' => $amount, 'currency' => 'INR', 'key_id' => $this->razorpay->getKeyId(), 'name' => config('society.name') ?: config('app.name'), 'description' => 'Approved penalty', 'prefill' => ['name' => $resident->user?->name ?? '', 'email' => $resident->user?->email ?? '', 'contact' => $resident->user?->phone ?? '']];
+        });
     }
 
     private function refreshBillStatus(MaintenanceBill $bill): void
@@ -693,6 +756,11 @@ class PaymentOrderService
 
             // Idempotent: already marked successful
             if ($order->status === PaymentOrder::STATUS_SUCCESSFUL) {
+                if ($order->gateway_payment_id !== $razorpayPaymentId) {
+                    throw ValidationException::withMessages([
+                        'razorpay_payment_id' => 'This order was already reconciled using a different payment reference.',
+                    ]);
+                }
                 return [
                     'success' => true,
                     'message' => 'Payment has already been verified and processed.',
@@ -712,6 +780,12 @@ class PaymentOrderService
 
                 throw ValidationException::withMessages([
                     'signature' => 'Payment signature verification failed. Please contact society administration if amount was deducted.',
+                ]);
+            }
+
+            if (round((float) $order->items->sum('amount'), 2) !== round((float) $order->amount, 2)) {
+                throw ValidationException::withMessages([
+                    'payment' => 'The payment order total does not match its recorded items.',
                 ]);
             }
 

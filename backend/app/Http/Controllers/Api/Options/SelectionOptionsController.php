@@ -8,6 +8,7 @@ use App\Models\Flat;
 use App\Models\Resident;
 use App\Models\StaffMember;
 use App\Models\User;
+use App\Models\ParkingSlot;
 use Illuminate\Http\JsonResponse;
 
 class SelectionOptionsController extends Controller
@@ -24,10 +25,10 @@ class SelectionOptionsController extends Controller
 
     public function security(): JsonResponse
     {
-        return response()->json(['data' => $this->options()]);
+        return response()->json(['data' => $this->options(includeParking: true)]);
     }
 
-    private function options(bool $includeOwners = false, bool $includeStaff = false): array
+    private function options(bool $includeOwners = false, bool $includeStaff = false, bool $includeParking = false): array
     {
         $data = [
             'flats' => Flat::query()->orderBy('building')->orderBy('flat_number')
@@ -45,6 +46,13 @@ class SelectionOptionsController extends Controller
             'amenities' => Amenity::query()->where('is_active', true)->orderBy('name')->get(['id', 'name'])
                 ->map(fn (Amenity $amenity) => ['id' => $amenity->id, 'label' => $amenity->name]),
         ];
+
+        if ($includeParking) {
+            $data['parking_slots'] = ParkingSlot::query()->with('flat:id,flat_number,building')->orderBy('slot_number')->get(['id', 'slot_number', 'flat_id', 'vehicle_number'])->map(fn (ParkingSlot $slot) => [
+                'id' => $slot->id,
+                'label' => trim($slot->slot_number.' · '.($slot->vehicle_number ?: 'Unregistered vehicle').' · '.($slot->flat ? "Flat {$slot->flat->flat_number}" : 'Visitor or unassigned')),
+            ]);
+        }
 
         if ($includeOwners) {
             $data['owners'] = User::query()->where('role', User::ROLE_RESIDENT)->orderBy('name')
