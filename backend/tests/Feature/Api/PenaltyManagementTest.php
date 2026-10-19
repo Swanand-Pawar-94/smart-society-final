@@ -29,7 +29,7 @@ class PenaltyManagementTest extends TestCase
         Sanctum::actingAs($security);
 
         $payload = ['category' => 'parking_vehicle', 'violation_type' => 'fire_lane', 'flat_id' => $flat->id, 'incident_at' => now()->subMinute()->toISOString(), 'location' => 'Basement', 'description' => 'Car parked in fire lane'];
-        $this->postJson('/api/penalty-reports', $payload)->assertCreated()->assertJsonPath('data.status', 'reported');
+        $this->postJson('/api/penalty-reports', $payload)->assertCreated()->assertJsonPath('data.status', 'reported')->assertJsonPath('data.resident_id', null);
         $this->postJson('/api/penalty-reports', $payload)->assertUnprocessable();
         $report = ViolationReport::firstOrFail();
         $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'approved', 'reason' => 'Fine'])->assertForbidden();
@@ -45,12 +45,16 @@ class PenaltyManagementTest extends TestCase
         $flat = Flat::create(['flat_number' => '202', 'building' => 'B', 'occupancy_status' => 'OCCUPIED']);
         $resident = User::create(['name' => 'Resident', 'email' => 'resident2@example.test', 'password' => 'Password123!', 'role' => User::ROLE_RESIDENT]);
         Resident::create(['user_id' => $resident->id, 'flat_id' => $flat->id, 'is_primary_contact' => true]);
+        $otherResident = User::create(['name' => 'Flatmate', 'email' => 'flatmate2@example.test', 'password' => 'Password123!', 'role' => User::ROLE_RESIDENT]);
+        $otherResidentRow = Resident::create(['user_id' => $otherResident->id, 'flat_id' => $flat->id]);
         ViolationReport::create(['category' => 'property_safety', 'violation_type' => 'blocked_emergency_exit', 'flat_id' => $flat->id, 'resident_id' => Resident::where('user_id', $resident->id)->value('id'), 'reported_by_user_id' => $security->id, 'incident_at' => now(), 'location' => 'Exit', 'description' => 'Blocked', 'status' => 'reported']);
+        ViolationReport::create(['category' => 'property_safety', 'violation_type' => 'property_damage', 'flat_id' => $flat->id, 'resident_id' => $otherResidentRow->id, 'reported_by_user_id' => $security->id, 'incident_at' => now(), 'location' => 'Hallway', 'description' => 'Damage', 'status' => 'reported']);
         Sanctum::actingAs($resident);
-        $this->getJson('/api/penalty-reports')->assertOk()->assertJsonCount(1, 'data');
+        $this->getJson('/api/penalty-reports')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.violation_type', 'blocked_emergency_exit');
+        $this->getJson('/api/penalty-reports/'.ViolationReport::where('resident_id', $otherResidentRow->id)->value('id'))->assertNotFound();
     }
 
-    public function test_admin_approval_requires_an_active_configured_rule_and_preserves_reason(): void
+    public function test_admin_can_approve_without_rule_assigns_verified_resident_and_prevents_duplicates(): void
     {
         $admin = User::create(['name' => 'Admin', 'email' => 'admin-penalty@example.test', 'password' => 'Password123!', 'role' => User::ROLE_ADMIN]);
         $security = User::create(['name' => 'Gate', 'email' => 'gate3@example.test', 'password' => 'Password123!', 'role' => User::ROLE_SECURITY]);
@@ -59,10 +63,25 @@ class PenaltyManagementTest extends TestCase
         $residentRow = Resident::create(['user_id' => $resident->id, 'flat_id' => $flat->id, 'is_primary_contact' => true]);
         $report = ViolationReport::create(['category' => 'parking_vehicle', 'violation_type' => 'fire_lane', 'flat_id' => $flat->id, 'resident_id' => $residentRow->id, 'reported_by_user_id' => $security->id, 'incident_at' => now(), 'location' => 'Entry', 'description' => 'Unsafe parking', 'status' => 'reported']);
         Sanctum::actingAs($admin);
-        $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'approved', 'disciplinary_amount' => 100, 'reason' => 'Authorized fine'])->assertUnprocessable();
-        PenaltyRule::create(['category' => 'parking_vehicle', 'violation_type' => 'fire_lane', 'minimum_amount' => 50, 'maximum_amount' => 150, 'requires_evidence' => false]);
-        $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'approved', 'disciplinary_amount' => 100, 'reason' => 'Authorized fine'])->assertOk()->assertJsonPath('data.penalty.disciplinary_amount', '100.00');
+        $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'approved', 'disciplinary_amount' => 100, 'responsible_resident_id' => $residentRow->id, 'reason' => 'Authorized fine'])->assertOk()->assertJsonPath('data.penalty.disciplinary_amount', '100.00');
+        $this->assertDatabaseHas('penalties', ['violation_report_id' => $report->id, 'resident_id' => $residentRow->id, 'flat_id' => $flat->id, 'payment_status' => 'unpaid']);
+        $this->assertDatabaseHas('violation_reports', ['id' => $report->id, 'status' => 'approved', 'resident_id' => $residentRow->id]);
+        $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'approved', 'disciplinary_amount' => 100, 'responsible_resident_id' => $residentRow->id, 'reason' => 'Duplicate'])->assertUnprocessable();
         $this->assertDatabaseHas('penalty_audit_logs', ['violation_report_id' => $report->id, 'action' => 'approved', 'reason' => 'Authorized fine']);
+    }
+
+    public function test_admin_cannot_assign_a_resident_from_another_flat_and_can_leave_report_under_investigation(): void
+    {
+        $admin = User::create(['name' => 'Admin', 'email' => 'admin-investigate@example.test', 'password' => 'Password123!', 'role' => User::ROLE_ADMIN]);
+        $reporter = User::create(['name' => 'Gate', 'email' => 'gate-investigate@example.test', 'password' => 'Password123!', 'role' => User::ROLE_SECURITY]);
+        $flat = Flat::create(['flat_number' => '707', 'building' => 'G', 'occupancy_status' => 'OCCUPIED']);
+        $otherFlat = Flat::create(['flat_number' => '708', 'building' => 'G', 'occupancy_status' => 'OCCUPIED']);
+        $resident = Resident::create(['user_id' => User::create(['name' => 'Other resident', 'email' => 'other-investigate@example.test', 'password' => 'Password123!', 'role' => User::ROLE_RESIDENT])->id, 'flat_id' => $otherFlat->id]);
+        $report = ViolationReport::create(['category' => 'parking_vehicle', 'violation_type' => 'fire_lane', 'flat_id' => $flat->id, 'reported_by_user_id' => $reporter->id, 'incident_at' => now(), 'location' => 'Entry', 'description' => 'Unidentified vehicle', 'status' => 'reported']);
+        Sanctum::actingAs($admin);
+        $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'approved', 'disciplinary_amount' => 25, 'responsible_resident_id' => $resident->id, 'reason' => 'Cannot link other flat'])->assertUnprocessable();
+        $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'under_review', 'reason' => 'Responsible person not yet identified'])->assertOk()->assertJsonPath('data.status', 'under_review');
+        $this->assertDatabaseMissing('penalties', ['violation_report_id' => $report->id]);
     }
 
     public function test_penalty_payment_uses_existing_gateway_verification_and_is_idempotent(): void
@@ -88,7 +107,7 @@ class PenaltyManagementTest extends TestCase
         $this->assertDatabaseHas('payment_order_items', ['penalty_id' => $penalty->id, 'maintenance_bill_id' => null]);
     }
 
-    public function test_late_maintenance_fee_uses_configured_fee_and_keeps_principal_separate(): void
+    public function test_late_maintenance_violation_uses_administrator_amount_without_a_rule(): void
     {
         $admin = User::create(['name' => 'Admin', 'email' => 'admin-late@example.test', 'password' => 'Password123!', 'role' => User::ROLE_ADMIN]);
         $security = User::create(['name' => 'Gate', 'email' => 'gate-late@example.test', 'password' => 'Password123!', 'role' => User::ROLE_SECURITY]);
@@ -96,17 +115,14 @@ class PenaltyManagementTest extends TestCase
         $flat = Flat::create(['flat_number' => '505', 'building' => 'E', 'occupancy_status' => 'OCCUPIED']);
         $resident = Resident::create(['user_id' => $residentUser->id, 'flat_id' => $flat->id, 'is_primary_contact' => true]);
         $bill = MaintenanceBill::create(['flat_id' => $flat->id, 'billing_month' => today()->subMonth()->startOfMonth(), 'due_date' => today()->subDays(10), 'amount' => 300, 'status' => MaintenanceBill::STATUS_UNPAID]);
-        PenaltyRule::create(['category' => 'maintenance_financial', 'violation_type' => 'late_maintenance', 'minimum_amount' => 50, 'maximum_amount' => 50, 'late_fee_amount' => 50, 'grace_period_days' => 5, 'requires_evidence' => false]);
         $report = ViolationReport::create(['category' => 'maintenance_financial', 'violation_type' => 'late_maintenance', 'flat_id' => $flat->id, 'resident_id' => $resident->id, 'maintenance_bill_id' => $bill->id, 'reported_by_user_id' => $security->id, 'incident_at' => now(), 'location' => 'Accounts', 'description' => 'Late maintenance payment', 'status' => 'reported']);
         Sanctum::actingAs($admin);
-        $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'approved', 'reason' => 'Configured late fee'])->assertOk()->assertJsonPath('data.penalty.disciplinary_amount', '0.00')->assertJsonPath('data.penalty.late_fee_amount', '50.00');
+        $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'approved', 'disciplinary_amount' => 75, 'responsible_resident_id' => $resident->id, 'reason' => 'Administrator assessed amount'])->assertOk()->assertJsonPath('data.penalty.disciplinary_amount', '75.00')->assertJsonPath('data.penalty.late_fee_amount', '0.00');
         $this->assertDatabaseHas('maintenance_bills', ['id' => $bill->id, 'amount' => 300]);
-
-        $duplicate = ViolationReport::create(['category' => 'maintenance_financial', 'violation_type' => 'late_maintenance', 'flat_id' => $flat->id, 'resident_id' => $resident->id, 'maintenance_bill_id' => $bill->id, 'reported_by_user_id' => $security->id, 'incident_at' => now(), 'location' => 'Accounts', 'description' => 'Duplicate late fee report', 'status' => 'reported']);
-        $this->postJson("/api/admin/penalty-reports/{$duplicate->id}/decision", ['decision' => 'approved', 'reason' => 'Duplicate'])->assertUnprocessable();
+        $this->postJson("/api/admin/penalty-reports/{$report->id}/decision", ['decision' => 'approved', 'disciplinary_amount' => 75, 'responsible_resident_id' => $resident->id, 'reason' => 'Duplicate'])->assertUnprocessable();
     }
 
-    public function test_evidence_is_private_and_only_visible_to_authorized_report_parties(): void
+    public function test_evidence_is_private_and_unassigned_residents_cannot_view_it(): void
     {
         Storage::fake('local');
         $security = User::create(['name' => 'Gate', 'email' => 'gate-evidence@example.test', 'password' => 'Password123!', 'role' => User::ROLE_SECURITY]);
@@ -121,7 +137,7 @@ class PenaltyManagementTest extends TestCase
         Sanctum::actingAs($otherSecurity);
         $this->getJson('/api/penalty-evidence/'.$evidenceId)->assertNotFound();
         Sanctum::actingAs($resident);
-        $this->get('/api/penalty-evidence/'.$evidenceId)->assertOk();
+        $this->get('/api/penalty-evidence/'.$evidenceId)->assertNotFound();
     }
 
     public function test_resident_appeal_evidence_and_admin_waiver_are_audited(): void

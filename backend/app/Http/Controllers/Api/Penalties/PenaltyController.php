@@ -6,7 +6,6 @@ use App\Exceptions\PaymentGatewayUnavailableException;
 use App\Http\Controllers\Controller;
 use App\Models\AmenityBooking;
 use App\Models\MaintenanceBill;
-use App\Models\MaintenancePayment;
 use App\Models\ParkingSlot;
 use App\Models\Penalty;
 use App\Models\PenaltyAppeal;
@@ -44,10 +43,14 @@ class PenaltyController extends Controller
     {
         $user = $request->user();
         $query = ViolationReport::query()->with(['rule', 'flat:id,flat_number,building', 'reporter:id,name', 'penalty.appeals', 'evidence:id,violation_report_id,original_name,mime_type,size_bytes']);
+        if ($user->hasRole('ADMIN')) {
+            $query->with('flat.residents:id,user_id,flat_id');
+            $query->with('flat.residents.user:id,name');
+        }
         if ($user->hasRole('RESIDENT')) {
             $resident = $user->resident;
             abort_unless($resident, 404);
-            $query->where('flat_id', $resident->flat_id);
+            $query->where('resident_id', $resident->id);
         } elseif ($user->hasRole('SECURITY')) {
             $query->where('reported_by_user_id', $user->id);
         }
@@ -96,8 +99,9 @@ class PenaltyController extends Controller
         if (! in_array($data['violation_type'], self::CATEGORIES[$data['category']], true)) {
             throw ValidationException::withMessages(['violation_type' => 'Violation type does not belong to the selected category.']);
         }
-        $rule = PenaltyRule::where('category', $data['category'])->where('violation_type', $data['violation_type'])->where('active', true)->first();
         $flatId = $data['flat_id'] ?? null;
+        // A flat or parking slot identifies the incident location, not the person
+        // responsible. The administrator must verify and select the resident.
         $residentId = null;
         if (! empty($data['vehicle_slot_id'])) {
             $slot = ParkingSlot::findOrFail($data['vehicle_slot_id']);
@@ -120,9 +124,6 @@ class PenaltyController extends Controller
             }
             $flatId = $flatId ?: $booking->resident?->flat_id;
         }
-        if ($flatId) {
-            $residentId = Resident::where('flat_id', $flatId)->where('is_primary_contact', true)->value('id') ?? Resident::where('flat_id', $flatId)->value('id');
-        }
         if (! $flatId && $data['category'] !== 'property_safety') {
             throw ValidationException::withMessages(['flat_id' => 'A related flat is required for this category.']);
         }
@@ -136,8 +137,8 @@ class PenaltyController extends Controller
         }
 
         try {
-            return DB::transaction(function () use ($request, $data, $rule, $flatId, $residentId, $fingerprint) {
-                $report = ViolationReport::create([...collect($data)->except('evidence')->all(), 'incident_fingerprint' => $fingerprint, 'flat_id' => $flatId, 'resident_id' => $residentId, 'rule_id' => $rule?->id, 'reported_by_user_id' => $request->user()->id, 'status' => 'reported']);
+            return DB::transaction(function () use ($request, $data, $flatId, $residentId, $fingerprint) {
+                $report = ViolationReport::create([...collect($data)->except('evidence')->all(), 'incident_fingerprint' => $fingerprint, 'flat_id' => $flatId, 'resident_id' => $residentId, 'rule_id' => null, 'reported_by_user_id' => $request->user()->id, 'status' => 'reported']);
                 foreach ($request->file('evidence', []) as $file) {
                     $path = $file->store('penalties/'.$report->id, 'local');
                     $report->evidence()->create(['uploaded_by_user_id' => $request->user()->id, 'disk' => 'local', 'path' => $path, 'original_name' => $file->getClientOriginalName(), 'mime_type' => $file->getMimeType(), 'size_bytes' => $file->getSize()]);
@@ -161,82 +162,39 @@ class PenaltyController extends Controller
             abort(422, 'This report has already been decided.');
         }
         $data = $request->validate([
-            'decision' => ['required', Rule::in(['warning_issued', 'approved', 'rejected'])],
+            'decision' => ['required', Rule::in(['under_review', 'warning_issued', 'approved', 'rejected'])],
             'reason' => ['required', 'string', 'max:5000'],
-            'disciplinary_amount' => ['nullable', 'numeric', 'min:0'],
+            'disciplinary_amount' => ['required_if:decision,approved', 'numeric', 'gt:0', 'max:1000000'],
+            'responsible_resident_id' => ['required_if:decision,approved', 'integer', 'exists:residents,id'],
             'repair_cost' => ['nullable', 'numeric', 'min:0'], 'due_date' => ['nullable', 'date', 'after_or_equal:today'],
         ]);
-        $rule = $report->rule ?: PenaltyRule::where('category', $report->category)->where('violation_type', $report->violation_type)->where('active', true)->first();
-        $isLateMaintenance = $report->category === 'maintenance_financial' && $report->violation_type === 'late_maintenance';
-        if ($data['decision'] === 'approved' && ! $isLateMaintenance && ! array_key_exists('disciplinary_amount', $data)) {
-            throw ValidationException::withMessages(['disciplinary_amount' => 'An administrator approved amount is required.']);
+        $resident = isset($data['responsible_resident_id']) ? Resident::findOrFail($data['responsible_resident_id']) : null;
+        if ($data['decision'] === 'approved' && (! $resident || ! $report->flat_id || (int) $resident->flat_id !== (int) $report->flat_id)) {
+            throw ValidationException::withMessages(['responsible_resident_id' => 'Select a verified resident associated with the reported flat.']);
         }
-        $bill = $isLateMaintenance && $report->maintenance_bill_id ? MaintenanceBill::findOrFail($report->maintenance_bill_id) : null;
         $lateFee = 0.0;
         $lateFeePeriod = null;
-        if ($data['decision'] === 'approved' && $isLateMaintenance) {
-            if (! $bill || ! $rule || $rule->late_fee_amount === null) {
-                abort(422, 'A linked maintenance bill and configured late fee are required.');
-            }
-            if ($bill->status === MaintenanceBill::STATUS_CANCELLED) {
-                abort(422, 'A cancelled maintenance bill cannot receive a late fee.');
-            }
-            $graceEndsAt = $bill->due_date->copy()->addDays((int) $rule->grace_period_days)->endOfDay();
-            if ($graceEndsAt->gte(now())) {
-                abort(422, 'The configured grace period has not elapsed.');
-            }
-            if ($bill->status === MaintenanceBill::STATUS_PAID) {
-                $wasPaidLate = $bill->payments()->where('status', MaintenancePayment::STATUS_COMPLETED)->where('paid_at', '>', $graceEndsAt)->exists();
-                if (! $wasPaidLate) {
-                    abort(422, 'The linked invoice was not paid after its configured grace period.');
-                }
-            }
-            $lateFee = (float) $rule->late_fee_amount;
-            $lateFeePeriod = $bill->billing_month?->format('Y-m') ?? $bill->due_date->format('Y-m');
-            if (Penalty::where('maintenance_bill_id', $bill->id)->where('late_fee_period', $lateFeePeriod)->exists()) {
-                abort(422, 'A late fee has already been assessed for this obligation period.');
-            }
-        }
-        $disciplinaryAmount = $isLateMaintenance ? 0.0 : (float) ($data['disciplinary_amount'] ?? 0);
-        $total = $disciplinaryAmount + (float) ($data['repair_cost'] ?? 0) + $lateFee;
-        if ($data['decision'] === 'approved' && (! $rule || ! $rule->active)) {
-            abort(422, 'An active administrator configured rule is required before approval.');
-        }
-        $ruleAmount = $isLateMaintenance ? $lateFee : $disciplinaryAmount;
-        if ($data['decision'] === 'approved' && ($ruleAmount < (float) $rule->minimum_amount || ($rule->maximum_amount !== null && $ruleAmount > (float) $rule->maximum_amount))) {
-            abort(422, 'Amount is outside the configured rule limits.');
-        }
-        if ($data['decision'] === 'approved' && $rule->requires_evidence && $report->evidence()->doesntExist()) {
-            abort(422, 'Evidence is required by this rule.');
-        }
+        $disciplinaryAmount = (float) ($data['disciplinary_amount'] ?? 0);
         if ($data['decision'] === 'approved' && (float) ($data['repair_cost'] ?? 0) > 0 && $report->evidence()->doesntExist()) {
             abort(422, 'Documented repair costs require supporting evidence.');
         }
-        if ($data['decision'] === 'approved' && ! $report->resident_id) {
-            abort(422, 'A resident must be linked before a penalty can be approved.');
-        }
-
-        return DB::transaction(function () use ($request, $report, $data, $disciplinaryAmount, $lateFee, $lateFeePeriod) {
-            if ($lateFeePeriod !== null) {
-                MaintenanceBill::query()->whereKey($report->maintenance_bill_id)->lockForUpdate()->firstOrFail();
-                if (Penalty::where('maintenance_bill_id', $report->maintenance_bill_id)->where('late_fee_period', $lateFeePeriod)->exists()) {
-                    abort(422, 'A late fee has already been assessed for this obligation period.');
-                }
-            }
+        return DB::transaction(function () use ($request, $report, $data, $disciplinaryAmount, $lateFee, $lateFeePeriod, $resident) {
             $report = ViolationReport::query()->whereKey($report->id)->lockForUpdate()->firstOrFail();
             if (! in_array($report->status, ['reported', 'under_review'], true)) {
                 abort(422, 'This report has already been decided.');
             }
             $from = $report->status;
-            if ($report->rule_id === null && $data['decision'] === 'approved') {
-                $report->rule_id = PenaltyRule::where('category', $report->category)->where('violation_type', $report->violation_type)->where('active', true)->value('id');
+            if ($data['decision'] === 'approved') {
+                $report->resident_id = $resident->id;
             }
             $report->update(['status' => $data['decision']]);
             if ($data['decision'] === 'approved') {
-                $penalty = Penalty::create(['violation_report_id' => $report->id, 'resident_id' => $report->resident_id, 'flat_id' => $report->flat_id, 'disciplinary_amount' => $disciplinaryAmount, 'repair_cost' => $data['repair_cost'] ?? 0, 'late_fee_amount' => $lateFee, 'maintenance_bill_id' => $report->maintenance_bill_id, 'booking_id' => $report->booking_id, 'late_fee_period' => $lateFeePeriod, 'status' => 'approved', 'payment_status' => 'unpaid', 'due_date' => $data['due_date'] ?? null, 'decision_reason' => $data['reason'], 'decided_by_user_id' => $request->user()->id, 'decided_at' => now()]);
+                $penalty = Penalty::create(['violation_report_id' => $report->id, 'resident_id' => $resident->id, 'flat_id' => $resident->flat_id, 'disciplinary_amount' => $disciplinaryAmount, 'repair_cost' => $data['repair_cost'] ?? 0, 'late_fee_amount' => $lateFee, 'maintenance_bill_id' => $report->maintenance_bill_id, 'booking_id' => $report->booking_id, 'late_fee_period' => $lateFeePeriod, 'status' => 'approved', 'payment_status' => 'unpaid', 'due_date' => $data['due_date'] ?? null, 'decision_reason' => $data['reason'], 'decided_by_user_id' => $request->user()->id, 'decided_at' => now()]);
             }
             $this->audit($report, $request->user()->id, $data['decision'], $from, $data['decision'], $data['reason'], isset($penalty) ? ['disciplinary_amount' => $penalty->disciplinary_amount, 'late_fee_amount' => $penalty->late_fee_amount, 'repair_cost' => $penalty->repair_cost, 'late_fee_period' => $penalty->late_fee_period] : []);
-            DB::afterCommit(fn () => $this->notifyResident($report->fresh(['resident.user']), 'penalty_'.$data['decision'], 'Violation report updated', $data['decision'] === 'approved' ? 'An approved penalty is available in your account.' : 'A decision has been recorded for a violation report.', ['report_id' => $report->id]));
+            if ($data['decision'] !== 'under_review') {
+                DB::afterCommit(fn () => $this->notifyResident($report->fresh(['resident.user']), 'penalty_'.$data['decision'], 'Violation report updated', $data['decision'] === 'approved' ? 'An approved penalty is available in your account.' : 'A decision has been recorded for a violation report.', ['report_id' => $report->id]));
+            }
 
             return response()->json(['data' => $report->fresh()->load('penalty')]);
         });
@@ -297,11 +255,8 @@ class PenaltyController extends Controller
         if (in_array($data['decision'], ['waived', 'adjusted'], true) && $penalty->payment_status === 'paid') {
             abort(422, 'A paid penalty requires a verified refund workflow before it can be waived or adjusted.');
         }
-        if ($data['decision'] === 'adjusted') {
-            $rule = $penalty->report->rule ?: PenaltyRule::where('category', $penalty->report->category)->where('violation_type', $penalty->report->violation_type)->where('active', true)->first();
-            if (! $rule || (float) $data['disciplinary_amount'] < (float) $rule->minimum_amount || ($rule->maximum_amount !== null && (float) $data['disciplinary_amount'] > (float) $rule->maximum_amount)) {
-                abort(422, 'Adjusted amount is outside the configured rule limits.');
-            }
+        if ($data['decision'] === 'adjusted' && ((float) $data['disciplinary_amount'] <= 0 || (float) $data['disciplinary_amount'] > 1000000)) {
+            throw ValidationException::withMessages(['disciplinary_amount' => 'Enter an amount greater than zero and no more than 1,000,000.']);
         }
 
         return DB::transaction(function () use ($request, $appeal, $data) {
@@ -367,7 +322,7 @@ class PenaltyController extends Controller
         if ($user->hasRole('SECURITY') && $report->reported_by_user_id === $user->id) {
             return;
         }
-        if ($user->hasRole('RESIDENT') && $user->resident && $user->resident->flat_id === $report->flat_id) {
+        if ($user->hasRole('RESIDENT') && $user->resident && (int) $user->resident->id === (int) $report->resident_id) {
             return;
         }
         abort(404);

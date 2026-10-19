@@ -75,35 +75,65 @@ class _PenaltiesScreenState extends State<PenaltiesScreen> {
       builder: (context) {
         final amount = TextEditingController();
         final reason = TextEditingController();
-        return AlertDialog(
-          title: Text(
-              decision == 'warning_issued' ? 'Issue warning' : 'Review report'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            if (decision == 'approved')
-              TextField(
-                  controller: amount,
-                  keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: 'Approved amount')),
-            TextField(
-                controller: reason,
-                maxLines: 3,
-                decoration:
-                    const InputDecoration(labelText: 'Decision reason')),
-          ]),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel')),
-            FilledButton(
-                onPressed: () => Navigator.pop(context, {
-                      'reason': reason.text,
-                      if (decision == 'approved')
-                        'disciplinary_amount': double.tryParse(amount.text) ?? 0
-                    }),
-                child: const Text('Save decision'))
-          ],
-        );
+        final residents = ((report['flat']
+                    as Map<String, dynamic>?)?['residents'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>()
+                .toList() ??
+            <Map<String, dynamic>>[];
+        int? residentId = int.tryParse(report['resident_id']?.toString() ?? '');
+        return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: Text(decision == 'warning_issued'
+                      ? 'Issue warning'
+                      : 'Review report'),
+                  content: Column(mainAxisSize: MainAxisSize.min, children: [
+                    if (decision == 'approved')
+                      DropdownButtonFormField<int>(
+                          initialValue: residents.any(
+                                  (resident) => resident['id'] == residentId)
+                              ? residentId
+                              : null,
+                          decoration: const InputDecoration(
+                              labelText: 'Verified responsible resident'),
+                          items: residents.map((resident) {
+                            final user =
+                                resident['user'] as Map<String, dynamic>? ?? {};
+                            return DropdownMenuItem<int>(
+                                value: int.tryParse(resident['id'].toString()),
+                                child: Text(
+                                    user['name']?.toString() ?? 'Resident'));
+                          }).toList(),
+                          onChanged: (value) =>
+                              setDialogState(() => residentId = value)),
+                    if (decision == 'approved')
+                      TextField(
+                          controller: amount,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                              labelText: 'Approved amount')),
+                    TextField(
+                        controller: reason,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                            labelText: 'Decision reason')),
+                  ]),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(context, {
+                              'decision': decision,
+                              'reason': reason.text,
+                              if (decision == 'approved') ...{
+                                'disciplinary_amount':
+                                    double.tryParse(amount.text) ?? 0,
+                                'responsible_resident_id': residentId
+                              }
+                            }),
+                        child: const Text('Save decision'))
+                  ],
+                ));
       },
     );
     if (form == null || !mounted) return;
@@ -227,8 +257,7 @@ class _PenaltiesScreenState extends State<PenaltiesScreen> {
           (evidence['mime_type']?.toString() ?? '').startsWith('image/');
       await showDialog<void>(
           context: context,
-          builder: (context) =>
-              AlertDialog(
+          builder: (context) => AlertDialog(
                   title:
                       Text(evidence['original_name']?.toString() ?? 'Evidence'),
                   content: image
@@ -656,6 +685,9 @@ class _PenaltiesScreenState extends State<PenaltiesScreen> {
               if (widget.role == 'ADMIN' &&
                   const {'reported', 'under_review'}.contains(report['status']))
                 Wrap(spacing: 8, children: [
+                  TextButton(
+                      onPressed: () => _decide(report, 'under_review'),
+                      child: const Text('Investigate')),
                   TextButton(
                       onPressed: () => _decide(report, 'warning_issued'),
                       child: const Text('Warn')),
