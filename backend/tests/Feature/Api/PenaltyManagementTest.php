@@ -138,6 +138,7 @@ class PenaltyManagementTest extends TestCase
         $response = $this->withHeaders(['Accept' => 'application/json'])->post("/api/resident/penalties/{$penalty->id}/appeals", ['reason' => 'I was not parked in the ramp.', 'evidence' => [UploadedFile::fake()->create('receipt.pdf', 50, 'application/pdf')]])->assertCreated();
         $appealId = $response->json('data.id');
         $this->assertDatabaseHas('violation_evidence', ['violation_report_id' => $report->id, 'appeal_id' => $appealId]);
+        $this->getJson('/api/penalty-reports')->assertOk()->assertJsonPath('data.0.penalty.appeals.0.status', 'submitted');
 
         Sanctum::actingAs($admin);
         $this->postJson("/api/admin/penalty-appeals/{$appealId}/decision", ['decision' => 'waived', 'reason' => 'Evidence supports the appeal.'])->assertOk()->assertJsonPath('data.status', 'waived');

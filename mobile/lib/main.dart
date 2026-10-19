@@ -265,8 +265,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   children: [
                                     // Logo mark
                                     Image.asset(
-                                      'assets/images/nivora_logo_mark.png',
-                                      height: isSmallScreen ? 34 : 40,
+                                      'assets/images/nivora_logo.png',
+                                      height: isSmallScreen ? 44 : 50,
                                       fit: BoxFit.contain,
                                       errorBuilder: (_, __, ___) => const Icon(
                                         Icons.apartment_rounded,
@@ -3102,6 +3102,13 @@ class SecurityMoreScreen extends StatelessWidget {
                   const ModuleScreen(title: 'Parcels', role: 'SECURITY'))),
         ),
         _MenuCard(
+          icon: Icons.gavel_outlined,
+          title: 'Penalty reports',
+          subtitle: 'Report violations and review your submissions',
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const PenaltiesScreen(role: 'SECURITY'))),
+        ),
+        _MenuCard(
           icon: Icons.campaign_outlined,
           title: 'Notices',
           subtitle: 'View society announcements',
@@ -3297,6 +3304,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => page == 'Reports'
             ? const AdminReportsScreen()
+            : page == 'Penalties'
+                ? const PenaltiesScreen(role: 'ADMIN')
             : ModuleScreen(title: page, role: 'ADMIN')));
   }
 
@@ -3685,6 +3694,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     iconColor: const Color(0xFF9333EA),
                     onTap: () => _openPage('Reports'),
                   ),
+                  _AdminQuickAction(
+                    icon: Icons.gavel_outlined,
+                    label: 'Review penalties',
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFE0E7FF), Color(0xFFC7D2FE)],
+                    ),
+                    iconColor: const Color(0xFF3730A3),
+                    onTap: () => _openPage('Penalties'),
+                  ),
                 ],
               ),
             ),
@@ -3962,6 +3980,13 @@ class AdminMoreScreen extends StatelessWidget {
         const SizedBox(height: 12),
         const _SectionHeader(title: 'Operations'),
         _MenuCard(
+          icon: Icons.gavel_outlined,
+          title: 'Penalty management',
+          subtitle: 'Review reports, rules, decisions and appeals',
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const PenaltiesScreen(role: 'ADMIN'))),
+        ),
+        _MenuCard(
           icon: Icons.receipt_long_outlined,
           title: 'Maintenance',
           subtitle: 'Bills and maintenance tracking',
@@ -4177,6 +4202,17 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
                   mainAxisExtent: 170,
                 ),
                 delegate: SliverChildListDelegate([
+                  _ModernInsightCard(
+                    icon: Icons.gavel_outlined,
+                    title: 'PENALTIES',
+                    value: 'View',
+                    subtitle: 'Reports, appeals and payments',
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF3949AB), Color(0xFF1A237E)],
+                    ),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const PenaltiesScreen(role: 'RESIDENT'))),
+                  ),
                   _ModernInsightCard(
                     icon: Icons.account_balance_wallet_outlined,
                     title: 'MY DUES',
@@ -6806,6 +6842,7 @@ class ResidentMoreScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const modules = [
+      ('Penalties', Icons.gavel_outlined),
       ('Amenities', Icons.pool_outlined),
       ('Bookings', Icons.event_note_outlined),
       ('Complaints', Icons.support_agent_outlined),
@@ -6825,11 +6862,13 @@ class ResidentMoreScreen extends StatelessWidget {
           title: Text(module.$1),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => module.$1 == 'Payments'
-                  ? const DuesScreen()
-                  : module.$1 == 'Profile'
-                      ? const AccountProfileScreen()
-                      : ModuleScreen(title: module.$1, role: 'RESIDENT'))),
+              builder: (_) => module.$1 == 'Penalties'
+                  ? const PenaltiesScreen(role: 'RESIDENT')
+                  : module.$1 == 'Payments'
+                      ? const DuesScreen()
+                      : module.$1 == 'Profile'
+                          ? const AccountProfileScreen()
+                          : ModuleScreen(title: module.$1, role: 'RESIDENT'))),
         )),
       const SizedBox(height: 8),
       Card(

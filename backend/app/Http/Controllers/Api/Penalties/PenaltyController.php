@@ -43,7 +43,7 @@ class PenaltyController extends Controller
     public function reports(Request $request)
     {
         $user = $request->user();
-        $query = ViolationReport::query()->with(['rule', 'flat:id,flat_number,building', 'reporter:id,name', 'penalty', 'evidence:id,violation_report_id,original_name,mime_type,size_bytes']);
+        $query = ViolationReport::query()->with(['rule', 'flat:id,flat_number,building', 'reporter:id,name', 'penalty.appeals', 'evidence:id,violation_report_id,original_name,mime_type,size_bytes']);
         if ($user->hasRole('RESIDENT')) {
             $resident = $user->resident;
             abort_unless($resident, 404);
@@ -61,7 +61,7 @@ class PenaltyController extends Controller
     public function dashboard(Request $request)
     {
         abort_unless($request->user()->hasRole('ADMIN'), 403);
-        $money = Penalty::query()->selectRaw("payment_status, SUM(disciplinary_amount + repair_cost + late_fee_amount) as total")
+        $money = Penalty::query()->selectRaw('payment_status, SUM(disciplinary_amount + repair_cost + late_fee_amount) as total')
             ->groupBy('payment_status')->get()->mapWithKeys(fn ($row) => [$row->payment_status => (float) $row->total]);
 
         return response()->json(['data' => [

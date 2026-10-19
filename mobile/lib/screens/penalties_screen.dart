@@ -48,7 +48,9 @@ class _PenaltiesScreenState extends State<PenaltiesScreen> {
       ..on(Razorpay.EVENT_PAYMENT_SUCCESS, _onPaymentSuccess)
       ..on(Razorpay.EVENT_PAYMENT_ERROR, _onPaymentError)
       ..on(Razorpay.EVENT_EXTERNAL_WALLET, _onExternalWallet);
-    _summary = _api.get('admin/penalty-dashboard');
+    _summary = widget.role == 'ADMIN'
+        ? _api.get('admin/penalty-dashboard')
+        : Future.value(<String, dynamic>{});
     _reports = widget.reportId == null
         ? _api.get(_path)
         : _api.get('penalty-reports/${widget.reportId}').then((result) => {
@@ -502,9 +504,6 @@ class _PenaltiesScreenState extends State<PenaltiesScreen> {
                 : data is Map
                     ? data['data'] as List? ?? const []
                     : const [];
-            if (items.isEmpty) {
-              return const Center(child: Text('No violation reports yet.'));
-            }
             return RefreshIndicator(
                 onRefresh: _reload,
                 child: ListView(padding: const EdgeInsets.all(12), children: [
@@ -512,6 +511,11 @@ class _PenaltiesScreenState extends State<PenaltiesScreen> {
                   if (widget.role == 'ADMIN') _filters(),
                   if (_error != null)
                     Text(_error!, style: const TextStyle(color: Colors.red)),
+                  if (items.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: Center(child: Text('No violation reports yet.')),
+                    ),
                   for (final value in items)
                     _reportCard(value as Map<String, dynamic>)
                 ]));
@@ -605,6 +609,12 @@ class _PenaltiesScreenState extends State<PenaltiesScreen> {
 
   Widget _reportCard(Map<String, dynamic> report) {
     final penalty = report['penalty'] as Map<String, dynamic>?;
+    final appeals = penalty?['appeals'] is List
+        ? (penalty!['appeals'] as List)
+            .whereType<Map>()
+            .map((appeal) => Map<String, dynamic>.from(appeal))
+            .toList()
+        : const <Map<String, dynamic>>[];
     return Card(
         child: Padding(
             padding: const EdgeInsets.all(12),
@@ -624,7 +634,12 @@ class _PenaltiesScreenState extends State<PenaltiesScreen> {
                     'Amount: ₹${_totalPenaltyAmount(penalty)} (fine ₹${penalty['disciplinary_amount']}, late fee ₹${penalty['late_fee_amount'] ?? 0}, repair ₹${penalty['repair_cost'] ?? 0})'),
                 Text(
                     'Due: ${penalty['due_date'] ?? 'Not set'} · Payment: ${penalty['payment_status']}'),
+                Text(
+                    'Issued: ${penalty['decided_at'] ?? report['created_at'] ?? '—'}'),
                 Text('Decision: ${penalty['decision_reason'] ?? '—'}'),
+                if (widget.role == 'RESIDENT' && appeals.isNotEmpty)
+                  Text(
+                      'Appeal status: ${appeals.last['status'] ?? 'submitted'}'),
               ],
               if (report['evidence'] is List &&
                   (report['evidence'] as List).isNotEmpty)
